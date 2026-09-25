@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#101820" />
   <title>Monopoly Bank</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=20260925-3" />
 </head>
 <body>
   <main class="shell">
@@ -60,6 +60,13 @@
         <form id="addPlayerForm" class="inline-form">
           <input id="newPlayerName" maxlength="24" placeholder="Player name" data-i18n-placeholder="playerName" required />
           <input id="startBalance" type="number" min="0" step="1" value="1500" aria-label="Starting balance" data-i18n-aria-label="startingBalance" />
+          <label class="compact-field"><span data-i18n="playerIcon">Icon</span>
+            <select id="playerIconSelect" aria-label="Player icon" data-i18n-aria-label="playerIcon"></select>
+          </label>
+          <div class="color-field">
+            <div class="field-label" data-i18n="playerColor">Color</div>
+            <div id="playerColorChoices" class="color-choices"></div>
+          </div>
           <button class="button primary" type="submit" data-i18n="add">Add</button>
         </form>
       </div>
@@ -145,6 +152,6 @@
     </div>
   </dialog>
 
-  <script type="module" src="app.js"></script>
+  <script type="module" src="app.js?v=20260925-3"></script>
 </body>
 </html>

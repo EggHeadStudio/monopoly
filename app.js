@@ -12,6 +12,26 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 
 const STARTING_BALANCE = 1500;
+const PLAYER_ICONS = [
+  { id: "car", label: { en: "Car", fi: "Auto" } },
+  { id: "hat", label: { en: "Hat", fi: "Hattu" } },
+  { id: "ship", label: { en: "Ship", fi: "Laiva" } },
+  { id: "shoe", label: { en: "Shoe", fi: "Kenkä" } },
+  { id: "dog", label: { en: "Dog", fi: "Koira" } },
+  { id: "cat", label: { en: "Cat", fi: "Kissa" } },
+  { id: "iron", label: { en: "Iron", fi: "Silitysrauta" } },
+  { id: "thimble", label: { en: "Thimble", fi: "Sormustin" } }
+];
+const PLAYER_COLORS = [
+  { id: "red", value: "#d64545" },
+  { id: "blue", value: "#2f6fd6" },
+  { id: "green", value: "#2f8b57" },
+  { id: "yellow", value: "#d5a62f" },
+  { id: "black", value: "#29313a" },
+  { id: "pink", value: "#cc5f93" },
+  { id: "teal", value: "#218b8f" },
+  { id: "orange", value: "#d66d2f" }
+];
 let user = null;
 let gameId = localStorage.getItem("monopolyGameId") || null;
 let currentPlayerId = localStorage.getItem("monopolyPlayerId") || null;
@@ -47,6 +67,8 @@ const translations = {
     playersCopy: "Choose your player, or add a new one.",
     playerName: "Player name",
     startingBalance: "Starting balance",
+    playerIcon: "Icon",
+    playerColor: "Color",
     add: "Add",
     yourBalance: "YOUR BALANCE",
     monopolyMoney: "Monopoly money",
@@ -118,11 +140,18 @@ const translations = {
     somethingWrong: "Something went wrong.",
     gameCodeCopied: "Game code copied.",
     noGamesYet: "No games yet.",
+    chooseUnusedColor: "Choose an unused color.",
+    allColorsUsed: "All player colors are already used.",
+    colorAlreadyUsed: "That color is already used by another player.",
     openGame: "Open",
     deleteGame: "Delete",
     deleteGameConfirm: "Delete game {code} and all of its data?",
     deletingGame: "Deleting game…",
     gameDeleted: "Game deleted.",
+    deletePlayer: "Delete",
+    deletePlayerConfirm: "Delete player {name}? Their properties will also be removed.",
+    deletingPlayer: "Deleting player…",
+    playerDeleted: "Player deleted.",
     created: "Created",
     switchLanguage: "Switch language"
   },
@@ -146,6 +175,8 @@ const translations = {
     playersCopy: "Valitse pelaajasi tai lisää uusi.",
     playerName: "Pelaajan nimi",
     startingBalance: "Aloitussaldo",
+    playerIcon: "Kuvake",
+    playerColor: "Väri",
     add: "Lisää",
     yourBalance: "SALDOSI",
     monopolyMoney: "Monopoly-rahaa",
@@ -217,11 +248,18 @@ const translations = {
     somethingWrong: "Jokin meni pieleen.",
     gameCodeCopied: "Pelikoodi kopioitu.",
     noGamesYet: "Ei pelejä vielä.",
+    chooseUnusedColor: "Valitse vapaa väri.",
+    allColorsUsed: "Kaikki pelaajavärit ovat jo käytössä.",
+    colorAlreadyUsed: "Tämä väri on jo toisella pelaajalla.",
     openGame: "Avaa",
     deleteGame: "Poista",
     deleteGameConfirm: "Poistetaanko peli {code} ja kaikki sen tiedot?",
     deletingGame: "Poistetaan peliä…",
     gameDeleted: "Peli poistettu.",
+    deletePlayer: "Poista",
+    deletePlayerConfirm: "Poistetaanko pelaaja {name}? Myös pelaajan tontit poistetaan.",
+    deletingPlayer: "Poistetaan pelaajaa…",
+    playerDeleted: "Pelaaja poistettu.",
     created: "Luotu",
     switchLanguage: "Vaihda kieli"
   }
@@ -234,7 +272,8 @@ const els = {
   joinGameBtn: $("joinGameBtn"), gameCodeText: $("gameCodeText"), copyCodeBtn: $("copyCodeBtn"),
   savedGamesCard: $("savedGamesCard"), savedGamesList: $("savedGamesList"),
   lobbyPlayers: $("lobbyPlayers"), addPlayerForm: $("addPlayerForm"), newPlayerName: $("newPlayerName"),
-  startBalance: $("startBalance"), currentPlayerName: $("currentPlayerName"), currentBalance: $("currentBalance"),
+  startBalance: $("startBalance"), playerIconSelect: $("playerIconSelect"), playerColorChoices: $("playerColorChoices"),
+  currentPlayerName: $("currentPlayerName"), currentBalance: $("currentBalance"),
   payPlayerBtn: $("payPlayerBtn"), payBankBtn: $("payBankBtn"), receiveBankBtn: $("receiveBankBtn"),
   propertyBtn: $("propertyBtn"), gamePlayers: $("gamePlayers"), backToLobbyBtn: $("backToLobbyBtn"),
   transactionList: $("transactionList"), undoBtn: $("undoBtn"), moneyDialog: $("moneyDialog"),
@@ -250,6 +289,10 @@ function t(key) {
   return translations[language]?.[key] || translations.en[key] || key;
 }
 
+function iconLabel(icon) {
+  return icon.label[language] || icon.label.en;
+}
+
 function applyLanguage() {
   document.documentElement.lang = language;
   document.querySelectorAll("[data-i18n]").forEach(element => { element.textContent = t(element.dataset.i18n); });
@@ -260,6 +303,7 @@ function applyLanguage() {
   const statusKey = els.statusBar.dataset.statusKey;
   if (statusKey) els.statusBar.textContent = t(statusKey);
   updateMoneyDialogTitle();
+  renderPlayerOptions();
   renderKnownGames();
   renderPlayers();
   renderCurrentPlayer();
@@ -456,18 +500,53 @@ function subscribeToGame() {
   }, handleError);
 }
 
+function renderPlayerOptions() {
+  if (!els.playerIconSelect || !els.playerColorChoices) return;
+  const selectedIcon = els.playerIconSelect.value || PLAYER_ICONS[0].id;
+  const usedColors = new Set(players.map(p => p.color).filter(Boolean));
+  const currentColor = selectedPlayerColor();
+  const availableColor = firstAvailableColor();
+  const selectedColor = currentColor && !usedColors.has(currentColor) ? currentColor : availableColor;
+  els.playerIconSelect.innerHTML = PLAYER_ICONS.map(icon => `<option value="${icon.id}">${iconLabel(icon)}</option>`).join("");
+  els.playerIconSelect.value = PLAYER_ICONS.some(icon => icon.id === selectedIcon) ? selectedIcon : PLAYER_ICONS[0].id;
+  els.playerColorChoices.innerHTML = PLAYER_COLORS.map(color => {
+    const used = usedColors.has(color.value);
+    const checked = selectedColor === color.value;
+    return `<label class="color-choice ${used ? "disabled" : ""}" title="${color.id}">
+      <input type="radio" name="playerColor" value="${color.value}" ${checked ? "checked" : ""} ${used ? "disabled" : ""} required />
+      <span style="--player-color: ${color.value}"></span>
+    </label>`;
+  }).join("");
+}
+
+function firstAvailableColor() {
+  const usedColors = new Set(players.map(p => p.color).filter(Boolean));
+  return PLAYER_COLORS.find(color => !usedColors.has(color.value))?.value || "";
+}
+
+function selectedPlayerColor() {
+  return els.playerColorChoices?.querySelector("input[name='playerColor']:checked")?.value || "";
+}
+
 async function addPlayer(event) {
   event.preventDefault();
   const name = els.newPlayerName.value.trim();
   const balance = Number(els.startBalance.value || STARTING_BALANCE);
+  const icon = PLAYER_ICONS.some(option => option.id === els.playerIconSelect.value) ? els.playerIconSelect.value : PLAYER_ICONS[0].id;
+  const color = selectedPlayerColor() || firstAvailableColor();
   if (!name || balance < 0) return;
+  if (!color) return setStatus("", true, "allColorsUsed");
+  if (players.some(player => player.color === color)) return setStatus("", true, "colorAlreadyUsed");
   try {
     await addDoc(collection(db, "games", gameId, "players"), {
       name,
       balance,
+      icon,
+      color,
       createdAt: serverTimestamp()
     });
     els.newPlayerName.value = "";
+    renderPlayerOptions();
   } catch (err) { handleError(err); }
 }
 
@@ -481,22 +560,71 @@ function selectPlayer(playerId) {
 }
 
 function renderPlayers() {
+  renderPlayerOptions();
   const row = p => `
     <div class="player-row ${p.id === currentPlayerId ? "active" : ""}">
+      ${playerToken(p)}
       <div class="player-main">
         <div class="player-name">${escapeHtml(p.name)}</div>
         <div class="player-balance">${money(p.balance)}</div>
       </div>
-      <button class="button" data-player="${p.id}">${p.id === currentPlayerId ? t("selected") : t("choose")}</button>
+      <div class="player-actions">
+        <button class="button" data-player="${p.id}">${p.id === currentPlayerId ? t("selected") : t("choose")}</button>
+        <button class="button danger" data-delete-player="${p.id}">${t("deletePlayer")}</button>
+      </div>
     </div>`;
 
   els.lobbyPlayers.innerHTML = players.length ? players.map(row).join("") : `<div class="empty">${t("noPlayersYet")}</div>`;
   els.gamePlayers.innerHTML = players.length ? players.map(p => `
     <div class="player-row ${p.id === currentPlayerId ? "active" : ""}">
+      ${playerToken(p)}
       <div class="player-main"><div class="player-name">${escapeHtml(p.name)}</div><div class="player-balance">${money(p.balance)}</div></div>
+      <div class="player-actions"><button class="button danger" data-delete-player="${p.id}">${t("deletePlayer")}</button></div>
     </div>`).join("") : `<div class="empty">${t("noPlayers")}</div>`;
 
   els.lobbyPlayers.querySelectorAll("[data-player]").forEach(btn => btn.addEventListener("click", () => selectPlayer(btn.dataset.player)));
+  document.querySelectorAll("[data-delete-player]").forEach(btn => btn.addEventListener("click", () => deletePlayer(btn.dataset.deletePlayer)));
+}
+
+async function deletePlayer(playerId) {
+  const player = players.find(p => p.id === playerId);
+  if (!player || !gameId) return;
+  if (!confirm(t("deletePlayerConfirm").replace("{name}", player.name))) return;
+  setStatus("", false, "deletingPlayer");
+  try {
+    const batch = writeBatch(db);
+    batch.delete(doc(db, "games", gameId, "players", playerId));
+    properties.filter(property => property.ownerId === playerId).forEach(property => {
+      batch.delete(doc(db, "games", gameId, "properties", property.id));
+    });
+    await batch.commit();
+    if (playerId === currentPlayerId) {
+      currentPlayerId = null;
+      localStorage.removeItem("monopolyPlayerId");
+      showOnly(els.lobbyView);
+    }
+    setStatus("", false, "playerDeleted");
+  } catch (err) { handleError(err); }
+}
+
+function playerToken(player) {
+  const icon = PLAYER_ICONS.find(option => option.id === player.icon) || PLAYER_ICONS[0];
+  const color = PLAYER_COLORS.some(option => option.value === player.color) ? player.color : "#6f7a71";
+  return `<div class="player-token" style="--player-color: ${color}" title="${escapeHtml(iconLabel(icon))}" aria-hidden="true">${playerIconSvg(icon.id)}</div>`;
+}
+
+function playerIconSvg(iconId) {
+  const icons = {
+    car: `<svg viewBox="0 0 64 64"><path d="M13 38h38l-5-14H21z"/><path d="M9 38h46v12H9z"/><circle cx="20" cy="51" r="6"/><circle cx="44" cy="51" r="6"/><path d="M24 28h16"/></svg>`,
+    hat: `<svg viewBox="0 0 64 64"><path d="M20 37h24l-3-19H23z"/><path d="M11 41c8 6 34 6 42 0v9H11z"/><path d="M22 34h20"/></svg>`,
+    ship: `<svg viewBox="0 0 64 64"><path d="M18 37h36l-7 13H14z"/><path d="M30 13v24"/><path d="M31 15l18 11-18 8z"/><path d="M29 20l-13 9 13 5z"/></svg>`,
+    shoe: `<svg viewBox="0 0 64 64"><path d="M13 42c12 1 20-5 24-15 3 8 8 12 16 14v8H13z"/><path d="M21 36h17"/><path d="M26 32h11"/></svg>`,
+    dog: `<svg viewBox="0 0 64 64"><path d="M17 37h25l7 7v7h-7v-5H23v5h-7z"/><path d="M42 30h9l3 5-6 4-6-3z"/><path d="M18 36l-7-7"/><circle cx="49" cy="34" r="2"/></svg>`,
+    cat: `<svg viewBox="0 0 64 64"><path d="M19 27l8-9 5 9 5-9 8 9v18c0 8-26 8-26 0z"/><circle cx="27" cy="37" r="2"/><circle cx="37" cy="37" r="2"/><path d="M28 46h8"/></svg>`,
+    iron: `<svg viewBox="0 0 64 64"><path d="M13 45c6-13 17-22 36-19 4 4 6 10 6 19z"/><path d="M25 27c1-8 11-8 14 0"/><path d="M14 45h41v7H14z"/></svg>`,
+    thimble: `<svg viewBox="0 0 64 64"><path d="M22 52h20l5-31c-5-6-25-6-30 0z"/><path d="M20 24c6 3 18 3 24 0"/><path d="M25 31h2M32 31h2M39 31h2M24 39h2M31 39h2M38 39h2"/></svg>`
+  };
+  return icons[iconId] || icons.car;
 }
 
 function renderCurrentPlayer() {
@@ -610,15 +738,15 @@ function renderTransactions() {
     els.transactionList.innerHTML = `<div class="empty">${t("noTransactionsYet")}</div>`;
     return;
   }
-  els.transactionList.innerHTML = transactions.map(t => {
-    const reversed = t.reversed ? ` · ${t("undone")}` : "";
+  els.transactionList.innerHTML = transactions.map(transaction => {
+    const reversed = transaction.reversed ? ` · ${t("undone")}` : "";
     let sign = ""; let cls = "neutral";
-    if (t.toId === me) { sign = "+"; cls = "plus"; }
-    else if (t.fromId === me) { sign = "−"; cls = "minus"; }
-    const from = playerName(t.fromId); const to = playerName(t.toId);
+    if (transaction.toId === me) { sign = "+"; cls = "plus"; }
+    else if (transaction.fromId === me) { sign = "−"; cls = "minus"; }
+    const from = playerName(transaction.fromId); const to = playerName(transaction.toId);
     return `<div class="transaction">
-      <div><strong>${escapeHtml(t.reason || t("transaction"))}</strong><div class="tx-note">${escapeHtml(from)} → ${escapeHtml(to)}${reversed}</div></div>
-      <div class="amount ${cls}">${sign}${money(t.amount)}</div>
+      <div><strong>${escapeHtml(transaction.reason || t("transaction"))}</strong><div class="tx-note">${escapeHtml(from)} → ${escapeHtml(to)}${reversed}</div></div>
+      <div class="amount ${cls}">${sign}${money(transaction.amount)}</div>
     </div>`;
   }).join("");
 }
