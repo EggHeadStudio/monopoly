@@ -1,7 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
 import {
-  getFirestore, doc, collection, getDoc, getDocs, setDoc, addDoc, updateDoc,
+  getFirestore, doc, collection, getDoc, getDocs, setDoc, addDoc,
   onSnapshot, query, orderBy, limit, serverTimestamp, runTransaction,
   writeBatch
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
@@ -579,11 +579,10 @@ function renderPlayers() {
     <div class="player-row ${p.id === currentPlayerId ? "active" : ""}">
       ${playerToken(p)}
       <div class="player-main"><div class="player-name">${escapeHtml(p.name)}</div><div class="player-balance">${money(p.balance)}</div></div>
-      <div class="player-actions"><button class="button danger" data-delete-player="${p.id}">${t("deletePlayer")}</button></div>
     </div>`).join("") : `<div class="empty">${t("noPlayers")}</div>`;
 
   els.lobbyPlayers.querySelectorAll("[data-player]").forEach(btn => btn.addEventListener("click", () => selectPlayer(btn.dataset.player)));
-  document.querySelectorAll("[data-delete-player]").forEach(btn => btn.addEventListener("click", () => deletePlayer(btn.dataset.deletePlayer)));
+  els.lobbyPlayers.querySelectorAll("[data-delete-player]").forEach(btn => btn.addEventListener("click", () => deletePlayer(btn.dataset.deletePlayer)));
 }
 
 async function deletePlayer(playerId) {
@@ -752,8 +751,7 @@ function renderTransactions() {
 }
 
 async function undoLastTransaction() {
-  const reversibleTypes = new Set(["player-transfer", "bank-payment", "bank-receive"]);
-  const transaction = transactions.find(x => !x.reversed && reversibleTypes.has(x.type));
+  const transaction = transactions.find(x => !x.reversed && x.fromId && x.toId && Number(x.amount) > 0);
   if (!transaction) return setStatus("", true, "noUndo");
   try {
     const txRef = doc(db, "games", gameId, "transactions", transaction.id);
@@ -764,11 +762,18 @@ async function undoLastTransaction() {
       const refs = {};
       if (data.fromId !== "bank") refs.from = doc(db, "games", gameId, "players", data.fromId);
       if (data.toId !== "bank") refs.to = doc(db, "games", gameId, "players", data.toId);
+      if (data.propertyId) refs.property = doc(db, "games", gameId, "properties", data.propertyId);
       const fromSnap = refs.from ? await tx.get(refs.from) : null;
       const toSnap = refs.to ? await tx.get(refs.to) : null;
+      const propertySnap = refs.property ? await tx.get(refs.property) : null;
+      if ((refs.from && !fromSnap.exists()) || (refs.to && !toSnap.exists())) throw new Error(t("playerGone"));
+      if (refs.property && !propertySnap.exists()) throw new Error(t("propertyGone"));
       if (refs.to && Number(toSnap.data().balance || 0) < Number(data.amount)) throw new Error(t("cannotUndo"));
       if (refs.from) tx.update(refs.from, { balance: Number(fromSnap.data().balance || 0) + Number(data.amount) });
       if (refs.to) tx.update(refs.to, { balance: Number(toSnap.data().balance || 0) - Number(data.amount) });
+      if (data.type === "property-buy" && refs.property) tx.delete(refs.property);
+      if (data.type === "mortgage" && refs.property) tx.update(refs.property, { mortgaged: false });
+      if (data.type === "unmortgage" && refs.property) tx.update(refs.property, { mortgaged: true });
       tx.update(txRef, { reversed: true, reversedAt: serverTimestamp() });
     });
     setStatus("", false, "lastUndone");
@@ -791,7 +796,7 @@ async function addProperty(event) {
       if (balance < price) throw new Error(t("notEnoughProperty"));
       tx.update(playerRef, { balance: balance - price });
       tx.set(propertyRef, { name, ownerId: currentPlayerId, price, mortgageValue, mortgaged: false, createdAt: serverTimestamp() });
-      if (price > 0) tx.set(txRef, { type: "property-buy", fromId: currentPlayerId, toId: "bank", amount: price, reason: `${t("bought")} ${name}`, createdAt: serverTimestamp(), reversed: false });
+      if (price > 0) tx.set(txRef, { type: "property-buy", fromId: currentPlayerId, toId: "bank", amount: price, reason: `${t("bought")} ${name}`, propertyId: propertyRef.id, createdAt: serverTimestamp(), reversed: false });
     });
     els.addPropertyForm.reset();
     els.propertyPrice.value = 0;
@@ -829,12 +834,12 @@ async function toggleMortgage(propertyId) {
       if (!p.mortgaged) {
         tx.update(playerRef, { balance: balance + value });
         tx.update(pRef, { mortgaged: true });
-        if (value > 0) tx.set(txRef, { type: "mortgage", fromId: "bank", toId: currentPlayerId, amount: value, reason: `${t("mortgagedAction")} ${p.name}`, createdAt: serverTimestamp(), reversed: false });
+        if (value > 0) tx.set(txRef, { type: "mortgage", fromId: "bank", toId: currentPlayerId, amount: value, reason: `${t("mortgagedAction")} ${p.name}`, propertyId, createdAt: serverTimestamp(), reversed: false });
       } else {
         if (balance < value) throw new Error(t("notEnoughUnmortgage"));
         tx.update(playerRef, { balance: balance - value });
         tx.update(pRef, { mortgaged: false });
-        if (value > 0) tx.set(txRef, { type: "unmortgage", fromId: currentPlayerId, toId: "bank", amount: value, reason: `${t("unmortgagedAction")} ${p.name}`, createdAt: serverTimestamp(), reversed: false });
+        if (value > 0) tx.set(txRef, { type: "unmortgage", fromId: currentPlayerId, toId: "bank", amount: value, reason: `${t("unmortgagedAction")} ${p.name}`, propertyId, createdAt: serverTimestamp(), reversed: false });
       }
     });
   } catch (err) { handleError(err); }
