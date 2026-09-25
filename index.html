@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#101820" />
+  <title>Monopoly Bank</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">DIGITAL MONEY MANAGER</div>
+        <h1>Monopoly Bank</h1>
+      </div>
+      <button id="leaveGameBtn" class="button ghost hidden">Leave game</button>
+    </header>
+
+    <div id="statusBar" class="status">Connecting…</div>
+
+    <section id="homeView" class="view card">
+      <h2>Start a game</h2>
+      <p class="muted">Create a new shared game or join one using its code.</p>
+      <div class="stack">
+        <button id="createGameBtn" class="button primary big">Create new game</button>
+        <div class="divider"><span>or</span></div>
+        <label>
+          Game code
+          <input id="joinCodeInput" maxlength="8" autocomplete="off" placeholder="e.g. K7Q9F2MX" />
+        </label>
+        <button id="joinGameBtn" class="button">Join game</button>
+      </div>
+    </section>
+
+    <section id="lobbyView" class="view hidden">
+      <div class="card hero-card">
+        <div>
+          <div class="eyebrow">GAME CODE</div>
+          <div id="gameCodeText" class="game-code">--------</div>
+        </div>
+        <button id="copyCodeBtn" class="button">Copy</button>
+      </div>
+
+      <div class="card">
+        <h2>Players</h2>
+        <p class="muted">Choose your player, or add a new one.</p>
+        <div id="lobbyPlayers" class="player-list"></div>
+        <form id="addPlayerForm" class="inline-form">
+          <input id="newPlayerName" maxlength="24" placeholder="Player name" required />
+          <input id="startBalance" type="number" min="0" step="1" value="1500" aria-label="Starting balance" />
+          <button class="button primary" type="submit">Add</button>
+        </form>
+      </div>
+    </section>
+
+    <section id="gameView" class="view hidden">
+      <div class="balance-card card">
+        <div class="eyebrow">YOUR BALANCE</div>
+        <h2 id="currentPlayerName">Player</h2>
+        <div id="currentBalance" class="balance">0</div>
+        <div class="currency-label">Monopoly money</div>
+      </div>
+
+      <div class="quick-grid">
+        <button id="payPlayerBtn" class="action-card"><strong>Pay player</strong><span>Transfer money instantly</span></button>
+        <button id="payBankBtn" class="action-card"><strong>Pay bank</strong><span>Tax, property, house…</span></button>
+        <button id="receiveBankBtn" class="action-card"><strong>Receive</strong><span>Salary, GO, bank…</span></button>
+        <button id="propertyBtn" class="action-card"><strong>Properties</strong><span>Buy and mortgage</span></button>
+      </div>
+
+      <div class="card">
+        <div class="section-heading">
+          <h2>Players</h2>
+          <button id="backToLobbyBtn" class="text-button">Switch player</button>
+        </div>
+        <div id="gamePlayers" class="player-list"></div>
+      </div>
+
+      <div class="card">
+        <div class="section-heading">
+          <h2>Recent activity</h2>
+          <button id="undoBtn" class="text-button">Undo last</button>
+        </div>
+        <div id="transactionList" class="transaction-list"></div>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="moneyDialog" class="modal">
+    <form method="dialog" id="moneyForm" class="modal-card">
+      <div class="section-heading">
+        <h2 id="moneyDialogTitle">Payment</h2>
+        <button value="cancel" class="icon-button" aria-label="Close">×</button>
+      </div>
+      <div id="recipientWrap" class="stack compact hidden">
+        <label>To player
+          <select id="recipientSelect"></select>
+        </label>
+      </div>
+      <label>Amount
+        <input id="moneyAmount" type="number" min="1" step="1" inputmode="decimal" required />
+      </label>
+      <label>Reason
+        <input id="moneyReason" maxlength="60" placeholder="Optional note" />
+      </label>
+      <div class="dialog-actions">
+        <button value="cancel" class="button">Cancel</button>
+        <button id="confirmMoneyBtn" value="default" class="button primary">Confirm</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="propertyDialog" class="modal">
+    <div class="modal-card">
+      <div class="section-heading">
+        <h2>Properties</h2>
+        <button id="closePropertyDialog" class="icon-button" aria-label="Close">×</button>
+      </div>
+      <form id="addPropertyForm" class="stack compact">
+        <label>Property name
+          <input id="propertyName" maxlength="50" placeholder="Boardwalk" required />
+        </label>
+        <label>Purchase price
+          <input id="propertyPrice" type="number" min="0" step="1" value="0" required />
+        </label>
+        <label>Mortgage value
+          <input id="mortgageValue" type="number" min="0" step="1" value="0" required />
+        </label>
+        <button class="button primary" type="submit">Buy property</button>
+      </form>
+      <div class="divider"><span>Your properties</span></div>
+      <div id="propertyList" class="property-list"></div>
+    </div>
+  </dialog>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
