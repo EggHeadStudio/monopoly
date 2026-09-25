@@ -1,7 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
 import {
-  getFirestore, doc, collection, getDoc, setDoc, addDoc, updateDoc,
+  getFirestore, doc, collection, getDoc, getDocs, setDoc, addDoc, updateDoc,
   onSnapshot, query, orderBy, limit, serverTimestamp, runTransaction,
   writeBatch
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
@@ -18,16 +18,221 @@ let currentPlayerId = localStorage.getItem("monopolyPlayerId") || null;
 let players = [];
 let transactions = [];
 let properties = [];
+let knownGames = [];
+let unsubscribeGames = null;
 let unsubscribePlayers = null;
 let unsubscribeTransactions = null;
 let unsubscribeProperties = null;
 let moneyMode = null;
+let language = localStorage.getItem("monopolyLanguage") || "en";
+
+const translations = {
+  en: {
+    appEyebrow: "DIGITAL MONEY MANAGER",
+    leaveGame: "Leave game",
+    connecting: "Connecting…",
+    signingIn: "Signing in…",
+    ready: "Ready.",
+    startGame: "Start a game",
+    startGameCopy: "Create a new shared game or join one using its code.",
+    createNewGame: "Create new game",
+    or: "or",
+    gameCode: "Game code",
+    gameCodeUpper: "GAME CODE",
+    joinGame: "Join game",
+    savedGames: "Games",
+    savedGamesCopy: "Open or delete an existing game.",
+    copy: "Copy",
+    players: "Players",
+    playersCopy: "Choose your player, or add a new one.",
+    playerName: "Player name",
+    startingBalance: "Starting balance",
+    add: "Add",
+    yourBalance: "YOUR BALANCE",
+    monopolyMoney: "Monopoly money",
+    payPlayer: "Pay player",
+    payPlayerCopy: "Transfer money instantly",
+    payBank: "Pay bank",
+    payBankCopy: "Tax, property, house…",
+    receive: "Receive",
+    receiveCopy: "Salary, GO, bank…",
+    properties: "Properties",
+    propertiesCopy: "Buy and mortgage",
+    switchPlayer: "Switch player",
+    recentActivity: "Recent activity",
+    undoLast: "Undo last",
+    payment: "Payment",
+    payAnotherPlayer: "Pay another player",
+    receiveFromBank: "Receive from bank",
+    toPlayer: "To player",
+    amount: "Amount",
+    reason: "Reason",
+    optionalNote: "Optional note",
+    cancel: "Cancel",
+    confirm: "Confirm",
+    close: "Close",
+    propertyName: "Property name",
+    boardwalk: "Boardwalk",
+    purchasePrice: "Purchase price",
+    mortgageValue: "Mortgage value",
+    buyProperty: "Buy property",
+    yourProperties: "Your properties",
+    selected: "Selected",
+    choose: "Choose",
+    noPlayersYet: "No players yet.",
+    noPlayers: "No players.",
+    bank: "Bank",
+    player: "Player",
+    noTransactionsYet: "No transactions yet.",
+    transaction: "Transaction",
+    undone: "undone",
+    noPropertiesYet: "No properties yet.",
+    purchase: "Purchase",
+    mortgage: "Mortgage",
+    mortgaged: "MORTGAGED",
+    unmortgage: "Unmortgage",
+    createGameStatus: "Creating game…",
+    createGameSuccess: "Game created. Add players and share the code.",
+    createGameError: "Could not generate a unique game code. Try again.",
+    enterGameCode: "Enter a game code.",
+    gameNotFound: "Game not found. Check the code.",
+    gameFound: "Game found. Choose your player.",
+    addOtherPlayer: "Add at least one other player first.",
+    transactionCompleted: "Transaction completed.",
+    defaultPlayerPayment: "Player payment",
+    defaultBankPayment: "Payment to bank",
+    defaultBankReceive: "Payment from bank",
+    playerGone: "Player no longer exists.",
+    notEnoughPayment: "Not enough money for this payment.",
+    noUndo: "There is no reversible money transaction to undo.",
+    alreadyUndone: "This transaction was already undone.",
+    cannotUndo: "Cannot undo: recipient no longer has enough money.",
+    lastUndone: "Last transaction undone.",
+    notEnoughProperty: "Not enough money to buy this property.",
+    propertyGone: "Property no longer exists.",
+    notYourProperty: "This is not your property.",
+    notEnoughUnmortgage: "Not enough money to unmortgage this property.",
+    bought: "Bought",
+    mortgagedAction: "Mortgaged",
+    unmortgagedAction: "Unmortgaged",
+    somethingWrong: "Something went wrong.",
+    gameCodeCopied: "Game code copied.",
+    noGamesYet: "No games yet.",
+    openGame: "Open",
+    deleteGame: "Delete",
+    deleteGameConfirm: "Delete game {code} and all of its data?",
+    deletingGame: "Deleting game…",
+    gameDeleted: "Game deleted.",
+    created: "Created",
+    switchLanguage: "Switch language"
+  },
+  fi: {
+    appEyebrow: "DIGITAALINEN RAHANHOITAJA",
+    leaveGame: "Poistu pelistä",
+    connecting: "Yhdistetään…",
+    signingIn: "Kirjaudutaan…",
+    ready: "Valmis.",
+    startGame: "Aloita peli",
+    startGameCopy: "Luo uusi jaettu peli tai liity pelikoodilla.",
+    createNewGame: "Luo uusi peli",
+    or: "tai",
+    gameCode: "Pelikoodi",
+    gameCodeUpper: "PELIKOODI",
+    joinGame: "Liity peliin",
+    savedGames: "Pelit",
+    savedGamesCopy: "Avaa tai poista olemassa oleva peli.",
+    copy: "Kopioi",
+    players: "Pelaajat",
+    playersCopy: "Valitse pelaajasi tai lisää uusi.",
+    playerName: "Pelaajan nimi",
+    startingBalance: "Aloitussaldo",
+    add: "Lisää",
+    yourBalance: "SALDOSI",
+    monopolyMoney: "Monopoly-rahaa",
+    payPlayer: "Maksa pelaajalle",
+    payPlayerCopy: "Siirrä rahaa heti",
+    payBank: "Maksa pankille",
+    payBankCopy: "Vero, tontti, talo…",
+    receive: "Vastaanota",
+    receiveCopy: "Palkka, lähtöruutu, pankki…",
+    properties: "Tontit",
+    propertiesCopy: "Osta ja kiinnitä",
+    switchPlayer: "Vaihda pelaajaa",
+    recentActivity: "Viime tapahtumat",
+    undoLast: "Kumoa viimeisin",
+    payment: "Maksu",
+    payAnotherPlayer: "Maksa toiselle pelaajalle",
+    receiveFromBank: "Vastaanota pankilta",
+    toPlayer: "Pelaajalle",
+    amount: "Summa",
+    reason: "Syy",
+    optionalNote: "Vapaaehtoinen huomio",
+    cancel: "Peruuta",
+    confirm: "Vahvista",
+    close: "Sulje",
+    propertyName: "Tontin nimi",
+    boardwalk: "Boardwalk",
+    purchasePrice: "Ostohinta",
+    mortgageValue: "Kiinnitysarvo",
+    buyProperty: "Osta tontti",
+    yourProperties: "Omat tontit",
+    selected: "Valittu",
+    choose: "Valitse",
+    noPlayersYet: "Ei pelaajia vielä.",
+    noPlayers: "Ei pelaajia.",
+    bank: "Pankki",
+    player: "Pelaaja",
+    noTransactionsYet: "Ei tapahtumia vielä.",
+    transaction: "Tapahtuma",
+    undone: "kumottu",
+    noPropertiesYet: "Ei tontteja vielä.",
+    purchase: "Osto",
+    mortgage: "Kiinnitys",
+    mortgaged: "KIINNITETTY",
+    unmortgage: "Poista kiinnitys",
+    createGameStatus: "Luodaan peliä…",
+    createGameSuccess: "Peli luotu. Lisää pelaajat ja jaa koodi.",
+    createGameError: "Yksilöllistä pelikoodia ei voitu luoda. Yritä uudelleen.",
+    enterGameCode: "Syötä pelikoodi.",
+    gameNotFound: "Peliä ei löytynyt. Tarkista koodi.",
+    gameFound: "Peli löytyi. Valitse pelaajasi.",
+    addOtherPlayer: "Lisää ensin vähintään yksi toinen pelaaja.",
+    transactionCompleted: "Tapahtuma tehty.",
+    defaultPlayerPayment: "Maksu pelaajalle",
+    defaultBankPayment: "Maksu pankille",
+    defaultBankReceive: "Maksu pankilta",
+    playerGone: "Pelaajaa ei enää ole.",
+    notEnoughPayment: "Rahat eivät riitä tähän maksuun.",
+    noUndo: "Kumottavaa rahatapahtumaa ei ole.",
+    alreadyUndone: "Tämä tapahtuma on jo kumottu.",
+    cannotUndo: "Ei voi kumota: vastaanottajalla ei ole enää tarpeeksi rahaa.",
+    lastUndone: "Viimeisin tapahtuma kumottu.",
+    notEnoughProperty: "Rahat eivät riitä tämän tontin ostoon.",
+    propertyGone: "Tonttia ei enää ole.",
+    notYourProperty: "Tämä ei ole sinun tonttisi.",
+    notEnoughUnmortgage: "Rahat eivät riitä kiinnityksen poistoon.",
+    bought: "Ostettu",
+    mortgagedAction: "Kiinnitetty",
+    unmortgagedAction: "Kiinnitys poistettu",
+    somethingWrong: "Jokin meni pieleen.",
+    gameCodeCopied: "Pelikoodi kopioitu.",
+    noGamesYet: "Ei pelejä vielä.",
+    openGame: "Avaa",
+    deleteGame: "Poista",
+    deleteGameConfirm: "Poistetaanko peli {code} ja kaikki sen tiedot?",
+    deletingGame: "Poistetaan peliä…",
+    gameDeleted: "Peli poistettu.",
+    created: "Luotu",
+    switchLanguage: "Vaihda kieli"
+  }
+};
 
 const $ = (id) => document.getElementById(id);
 const els = {
   statusBar: $("statusBar"), homeView: $("homeView"), lobbyView: $("lobbyView"), gameView: $("gameView"),
   leaveGameBtn: $("leaveGameBtn"), createGameBtn: $("createGameBtn"), joinCodeInput: $("joinCodeInput"),
   joinGameBtn: $("joinGameBtn"), gameCodeText: $("gameCodeText"), copyCodeBtn: $("copyCodeBtn"),
+  savedGamesCard: $("savedGamesCard"), savedGamesList: $("savedGamesList"),
   lobbyPlayers: $("lobbyPlayers"), addPlayerForm: $("addPlayerForm"), newPlayerName: $("newPlayerName"),
   startBalance: $("startBalance"), currentPlayerName: $("currentPlayerName"), currentBalance: $("currentBalance"),
   payPlayerBtn: $("payPlayerBtn"), payBankBtn: $("payBankBtn"), receiveBankBtn: $("receiveBankBtn"),
@@ -35,13 +240,42 @@ const els = {
   transactionList: $("transactionList"), undoBtn: $("undoBtn"), moneyDialog: $("moneyDialog"),
   moneyForm: $("moneyForm"), moneyDialogTitle: $("moneyDialogTitle"), recipientWrap: $("recipientWrap"),
   recipientSelect: $("recipientSelect"), moneyAmount: $("moneyAmount"), moneyReason: $("moneyReason"),
+  closeMoneyDialog: $("closeMoneyDialog"), cancelMoneyDialog: $("cancelMoneyDialog"), languageToggle: $("languageToggle"),
   propertyDialog: $("propertyDialog"), closePropertyDialog: $("closePropertyDialog"),
   addPropertyForm: $("addPropertyForm"), propertyName: $("propertyName"), propertyPrice: $("propertyPrice"),
   mortgageValue: $("mortgageValue"), propertyList: $("propertyList")
 };
 
-function setStatus(message, isError = false) {
-  els.statusBar.textContent = message || "";
+function t(key) {
+  return translations[language]?.[key] || translations.en[key] || key;
+}
+
+function applyLanguage() {
+  document.documentElement.lang = language;
+  document.querySelectorAll("[data-i18n]").forEach(element => { element.textContent = t(element.dataset.i18n); });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach(element => { element.placeholder = t(element.dataset.i18nPlaceholder); });
+  document.querySelectorAll("[data-i18n-aria-label]").forEach(element => { element.setAttribute("aria-label", t(element.dataset.i18nAriaLabel)); });
+  els.languageToggle.textContent = language.toUpperCase();
+  els.languageToggle.setAttribute("aria-label", t("switchLanguage"));
+  const statusKey = els.statusBar.dataset.statusKey;
+  if (statusKey) els.statusBar.textContent = t(statusKey);
+  updateMoneyDialogTitle();
+  renderKnownGames();
+  renderPlayers();
+  renderCurrentPlayer();
+  renderTransactions();
+  renderProperties();
+}
+
+function setLanguage(nextLanguage) {
+  language = nextLanguage;
+  localStorage.setItem("monopolyLanguage", language);
+  applyLanguage();
+}
+
+function setStatus(message, isError = false, key = "") {
+  els.statusBar.dataset.statusKey = key;
+  els.statusBar.textContent = key ? t(key) : (message || "");
   els.statusBar.classList.toggle("error", isError);
 }
 
@@ -53,6 +287,7 @@ function showOnly(view) {
   for (const element of [els.homeView, els.lobbyView, els.gameView]) element.classList.add("hidden");
   view.classList.remove("hidden");
   els.leaveGameBtn.classList.toggle("hidden", view === els.homeView);
+  els.savedGamesCard.classList.toggle("hidden", view !== els.homeView);
 }
 
 function makeGameCode(length = 8) {
@@ -67,12 +302,12 @@ async function createUniqueGameCode() {
     const snap = await getDoc(doc(db, "games", code));
     if (!snap.exists()) return code;
   }
-  throw new Error("Could not generate a unique game code. Try again.");
+  throw new Error(t("createGameError"));
 }
 
 async function createGame() {
   if (!user) return;
-  setStatus("Creating game…");
+  setStatus("", false, "createGameStatus");
   try {
     const code = await createUniqueGameCode();
     await setDoc(doc(db, "games", code), {
@@ -81,18 +316,18 @@ async function createGame() {
       createdBy: user.uid
     });
     enterGame(code, null);
-    setStatus("Game created. Add players and share the code.");
+    setStatus("", false, "createGameSuccess");
   } catch (err) { handleError(err); }
 }
 
 async function joinGame() {
   const code = els.joinCodeInput.value.trim().toUpperCase();
-  if (!code) return setStatus("Enter a game code.", true);
+  if (!code) return setStatus("", true, "enterGameCode");
   try {
     const snap = await getDoc(doc(db, "games", code));
-    if (!snap.exists()) return setStatus("Game not found. Check the code.", true);
+    if (!snap.exists()) return setStatus("", true, "gameNotFound");
     enterGame(code, null);
-    setStatus("Game found. Choose your player.");
+    setStatus("", false, "gameFound");
   } catch (err) { handleError(err); }
 }
 
@@ -117,12 +352,85 @@ function leaveGame() {
   localStorage.removeItem("monopolyGameId");
   localStorage.removeItem("monopolyPlayerId");
   showOnly(els.homeView);
-  setStatus("Ready.");
+  setStatus("", false, "ready");
 }
 
 function stopSubscriptions() {
   for (const fn of [unsubscribePlayers, unsubscribeTransactions, unsubscribeProperties]) if (fn) fn();
   unsubscribePlayers = unsubscribeTransactions = unsubscribeProperties = null;
+}
+
+function subscribeToKnownGames() {
+  if (unsubscribeGames) unsubscribeGames();
+  const gamesQuery = query(collection(db, "games"), orderBy("createdAt", "desc"), limit(30));
+  unsubscribeGames = onSnapshot(gamesQuery, snap => {
+    knownGames = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderKnownGames();
+  }, handleError);
+}
+
+function renderKnownGames() {
+  if (!els.savedGamesList) return;
+  if (!knownGames.length) {
+    els.savedGamesList.innerHTML = `<div class="empty">${t("noGamesYet")}</div>`;
+    return;
+  }
+  els.savedGamesList.innerHTML = knownGames.map(game => {
+    const createdAt = formatGameDate(game.createdAt);
+    return `<div class="game-row">
+      <div class="player-main">
+        <div class="player-name">${escapeHtml(game.id)}</div>
+        <div class="player-balance">${t("created")} ${escapeHtml(createdAt)}</div>
+      </div>
+      <div class="game-actions">
+        <button class="button" data-open-game="${game.id}">${t("openGame")}</button>
+        <button class="button danger" data-delete-game="${game.id}">${t("deleteGame")}</button>
+      </div>
+    </div>`;
+  }).join("");
+  els.savedGamesList.querySelectorAll("[data-open-game]").forEach(btn => btn.addEventListener("click", () => openKnownGame(btn.dataset.openGame)));
+  els.savedGamesList.querySelectorAll("[data-delete-game]").forEach(btn => btn.addEventListener("click", () => deleteKnownGame(btn.dataset.deleteGame)));
+}
+
+function formatGameDate(timestamp) {
+  if (!timestamp?.toDate) return "-";
+  return new Intl.DateTimeFormat(language === "fi" ? "fi-FI" : "en", { dateStyle: "short", timeStyle: "short" }).format(timestamp.toDate());
+}
+
+function openKnownGame(code) {
+  enterGame(code, null);
+  setStatus("", false, "gameFound");
+}
+
+async function deleteKnownGame(code) {
+  if (!confirm(t("deleteGameConfirm").replace("{code}", code))) return;
+  setStatus("", false, "deletingGame");
+  try {
+    if (code === gameId) stopSubscriptions();
+    const gameRef = doc(db, "games", code);
+    const refs = [];
+    for (const subcollection of ["players", "transactions", "properties"]) {
+      const snap = await getDocs(collection(db, "games", code, subcollection));
+      snap.docs.forEach(document => refs.push(document.ref));
+    }
+    refs.push(gameRef);
+    for (let index = 0; index < refs.length; index += 450) {
+      const batch = writeBatch(db);
+      refs.slice(index, index + 450).forEach(ref => batch.delete(ref));
+      await batch.commit();
+    }
+    if (code === gameId || localStorage.getItem("monopolyGameId") === code) {
+      gameId = null;
+      currentPlayerId = null;
+      players = [];
+      transactions = [];
+      properties = [];
+      localStorage.removeItem("monopolyGameId");
+      localStorage.removeItem("monopolyPlayerId");
+      showOnly(els.homeView);
+    }
+    setStatus("", false, "gameDeleted");
+  } catch (err) { handleError(err); }
 }
 
 function subscribeToGame() {
@@ -179,14 +487,14 @@ function renderPlayers() {
         <div class="player-name">${escapeHtml(p.name)}</div>
         <div class="player-balance">${money(p.balance)}</div>
       </div>
-      <button class="button" data-player="${p.id}">${p.id === currentPlayerId ? "Selected" : "Choose"}</button>
+      <button class="button" data-player="${p.id}">${p.id === currentPlayerId ? t("selected") : t("choose")}</button>
     </div>`;
 
-  els.lobbyPlayers.innerHTML = players.length ? players.map(row).join("") : `<div class="empty">No players yet.</div>`;
+  els.lobbyPlayers.innerHTML = players.length ? players.map(row).join("") : `<div class="empty">${t("noPlayersYet")}</div>`;
   els.gamePlayers.innerHTML = players.length ? players.map(p => `
     <div class="player-row ${p.id === currentPlayerId ? "active" : ""}">
       <div class="player-main"><div class="player-name">${escapeHtml(p.name)}</div><div class="player-balance">${money(p.balance)}</div></div>
-    </div>`).join("") : `<div class="empty">No players.</div>`;
+    </div>`).join("") : `<div class="empty">${t("noPlayers")}</div>`;
 
   els.lobbyPlayers.querySelectorAll("[data-player]").forEach(btn => btn.addEventListener("click", () => selectPlayer(btn.dataset.player)));
 }
@@ -194,6 +502,7 @@ function renderPlayers() {
 function renderCurrentPlayer() {
   const player = players.find(p => p.id === currentPlayerId);
   if (!player) {
+    els.currentPlayerName.textContent = t("player");
     if (currentPlayerId && players.length) {
       currentPlayerId = null;
       localStorage.removeItem("monopolyPlayerId");
@@ -212,17 +521,31 @@ function openMoneyDialog(mode) {
   els.moneyForm.reset();
   els.recipientWrap.classList.add("hidden");
   if (mode === "player") {
-    els.moneyDialogTitle.textContent = "Pay another player";
     const others = players.filter(p => p.id !== currentPlayerId);
-    if (!others.length) return setStatus("Add at least one other player first.", true);
+    if (!others.length) {
+      moneyMode = null;
+      updateMoneyDialogTitle();
+      return setStatus("", true, "addOtherPlayer");
+    }
     els.recipientSelect.innerHTML = others.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
     els.recipientWrap.classList.remove("hidden");
-  } else if (mode === "bank-pay") {
-    els.moneyDialogTitle.textContent = "Pay bank";
-  } else {
-    els.moneyDialogTitle.textContent = "Receive from bank";
   }
+  updateMoneyDialogTitle();
   els.moneyDialog.showModal();
+}
+
+function updateMoneyDialogTitle() {
+  if (!els.moneyDialogTitle) return;
+  if (moneyMode === "player") els.moneyDialogTitle.textContent = t("payAnotherPlayer");
+  else if (moneyMode === "bank-pay") els.moneyDialogTitle.textContent = t("payBank");
+  else if (moneyMode === "bank-receive") els.moneyDialogTitle.textContent = t("receiveFromBank");
+  else els.moneyDialogTitle.textContent = t("payment");
+}
+
+function closeMoneyDialog() {
+  els.moneyDialog.close("cancel");
+  els.moneyForm.reset();
+  moneyMode = null;
 }
 
 async function handleMoneySubmit(event) {
@@ -235,14 +558,15 @@ async function handleMoneySubmit(event) {
     if (moneyMode === "bank-pay") await bankTransaction(currentPlayerId, -amount, reason, "bank-payment");
     if (moneyMode === "bank-receive") await bankTransaction(currentPlayerId, amount, reason, "bank-receive");
     els.moneyDialog.close();
-    setStatus("Transaction completed.");
+    moneyMode = null;
+    setStatus("", false, "transactionCompleted");
   } catch (err) { handleError(err); }
 }
 
 function defaultReasonForMode(mode) {
-  if (mode === "player") return "Player payment";
-  if (mode === "bank-pay") return "Payment to bank";
-  return "Payment from bank";
+  if (mode === "player") return t("defaultPlayerPayment");
+  if (mode === "bank-pay") return t("defaultBankPayment");
+  return t("defaultBankReceive");
 }
 
 async function transferBetweenPlayers(fromId, toId, amount, reason) {
@@ -252,10 +576,10 @@ async function transferBetweenPlayers(fromId, toId, amount, reason) {
   await runTransaction(db, async tx => {
     const fromSnap = await tx.get(fromRef);
     const toSnap = await tx.get(toRef);
-    if (!fromSnap.exists() || !toSnap.exists()) throw new Error("Player no longer exists.");
+    if (!fromSnap.exists() || !toSnap.exists()) throw new Error(t("playerGone"));
     const fromBalance = Number(fromSnap.data().balance || 0);
     const toBalance = Number(toSnap.data().balance || 0);
-    if (fromBalance < amount) throw new Error("Not enough money for this payment.");
+    if (fromBalance < amount) throw new Error(t("notEnoughPayment"));
     tx.update(fromRef, { balance: fromBalance - amount });
     tx.update(toRef, { balance: toBalance + amount });
     tx.set(txRef, { type: "player-transfer", fromId, toId, amount, reason, createdAt: serverTimestamp(), reversed: false });
@@ -267,10 +591,10 @@ async function bankTransaction(playerId, delta, reason, type) {
   const txRef = doc(collection(db, "games", gameId, "transactions"));
   await runTransaction(db, async tx => {
     const snap = await tx.get(playerRef);
-    if (!snap.exists()) throw new Error("Player no longer exists.");
+    if (!snap.exists()) throw new Error(t("playerGone"));
     const oldBalance = Number(snap.data().balance || 0);
     const next = oldBalance + delta;
-    if (next < 0) throw new Error("Not enough money for this payment.");
+    if (next < 0) throw new Error(t("notEnoughPayment"));
     tx.update(playerRef, { balance: next });
     tx.set(txRef, {
       type, fromId: delta < 0 ? playerId : "bank", toId: delta > 0 ? playerId : "bank",
@@ -281,19 +605,19 @@ async function bankTransaction(playerId, delta, reason, type) {
 
 function renderTransactions() {
   const me = currentPlayerId;
-  const playerName = id => id === "bank" ? "Bank" : (players.find(p => p.id === id)?.name || "Player");
+  const playerName = id => id === "bank" ? t("bank") : (players.find(p => p.id === id)?.name || t("player"));
   if (!transactions.length) {
-    els.transactionList.innerHTML = `<div class="empty">No transactions yet.</div>`;
+    els.transactionList.innerHTML = `<div class="empty">${t("noTransactionsYet")}</div>`;
     return;
   }
   els.transactionList.innerHTML = transactions.map(t => {
-    const reversed = t.reversed ? " · undone" : "";
+    const reversed = t.reversed ? ` · ${t("undone")}` : "";
     let sign = ""; let cls = "neutral";
     if (t.toId === me) { sign = "+"; cls = "plus"; }
     else if (t.fromId === me) { sign = "−"; cls = "minus"; }
     const from = playerName(t.fromId); const to = playerName(t.toId);
     return `<div class="transaction">
-      <div><strong>${escapeHtml(t.reason || "Transaction")}</strong><div class="tx-note">${escapeHtml(from)} → ${escapeHtml(to)}${reversed}</div></div>
+      <div><strong>${escapeHtml(t.reason || t("transaction"))}</strong><div class="tx-note">${escapeHtml(from)} → ${escapeHtml(to)}${reversed}</div></div>
       <div class="amount ${cls}">${sign}${money(t.amount)}</div>
     </div>`;
   }).join("");
@@ -301,25 +625,25 @@ function renderTransactions() {
 
 async function undoLastTransaction() {
   const reversibleTypes = new Set(["player-transfer", "bank-payment", "bank-receive"]);
-  const t = transactions.find(x => !x.reversed && reversibleTypes.has(x.type));
-  if (!t) return setStatus("There is no reversible money transaction to undo.", true);
+  const transaction = transactions.find(x => !x.reversed && reversibleTypes.has(x.type));
+  if (!transaction) return setStatus("", true, "noUndo");
   try {
-    const txRef = doc(db, "games", gameId, "transactions", t.id);
+    const txRef = doc(db, "games", gameId, "transactions", transaction.id);
     await runTransaction(db, async tx => {
       const latest = await tx.get(txRef);
-      if (!latest.exists() || latest.data().reversed) throw new Error("This transaction was already undone.");
+      if (!latest.exists() || latest.data().reversed) throw new Error(t("alreadyUndone"));
       const data = latest.data();
       const refs = {};
       if (data.fromId !== "bank") refs.from = doc(db, "games", gameId, "players", data.fromId);
       if (data.toId !== "bank") refs.to = doc(db, "games", gameId, "players", data.toId);
       const fromSnap = refs.from ? await tx.get(refs.from) : null;
       const toSnap = refs.to ? await tx.get(refs.to) : null;
-      if (refs.to && Number(toSnap.data().balance || 0) < Number(data.amount)) throw new Error("Cannot undo: recipient no longer has enough money.");
+      if (refs.to && Number(toSnap.data().balance || 0) < Number(data.amount)) throw new Error(t("cannotUndo"));
       if (refs.from) tx.update(refs.from, { balance: Number(fromSnap.data().balance || 0) + Number(data.amount) });
       if (refs.to) tx.update(refs.to, { balance: Number(toSnap.data().balance || 0) - Number(data.amount) });
       tx.update(txRef, { reversed: true, reversedAt: serverTimestamp() });
     });
-    setStatus("Last transaction undone.");
+    setStatus("", false, "lastUndone");
   } catch (err) { handleError(err); }
 }
 
@@ -336,10 +660,10 @@ async function addProperty(event) {
     await runTransaction(db, async tx => {
       const playerSnap = await tx.get(playerRef);
       const balance = Number(playerSnap.data().balance || 0);
-      if (balance < price) throw new Error("Not enough money to buy this property.");
+      if (balance < price) throw new Error(t("notEnoughProperty"));
       tx.update(playerRef, { balance: balance - price });
       tx.set(propertyRef, { name, ownerId: currentPlayerId, price, mortgageValue, mortgaged: false, createdAt: serverTimestamp() });
-      if (price > 0) tx.set(txRef, { type: "property-buy", fromId: currentPlayerId, toId: "bank", amount: price, reason: `Bought ${name}`, createdAt: serverTimestamp(), reversed: false });
+      if (price > 0) tx.set(txRef, { type: "property-buy", fromId: currentPlayerId, toId: "bank", amount: price, reason: `${t("bought")} ${name}`, createdAt: serverTimestamp(), reversed: false });
     });
     els.addPropertyForm.reset();
     els.propertyPrice.value = 0;
@@ -350,13 +674,13 @@ async function addProperty(event) {
 function renderProperties() {
   const mine = properties.filter(p => p.ownerId === currentPlayerId);
   if (!mine.length) {
-    els.propertyList.innerHTML = `<div class="empty">No properties yet.</div>`;
+    els.propertyList.innerHTML = `<div class="empty">${t("noPropertiesYet")}</div>`;
     return;
   }
   els.propertyList.innerHTML = mine.map(p => `<div class="property-item ${p.mortgaged ? "mortgaged" : ""}">
     <strong>${escapeHtml(p.name)}</strong>
-    <div class="tx-note">Purchase ${money(p.price)} · Mortgage ${money(p.mortgageValue)}${p.mortgaged ? " · MORTGAGED" : ""}</div>
-    <div class="property-actions"><button class="button" data-mortgage="${p.id}">${p.mortgaged ? "Unmortgage" : "Mortgage"}</button></div>
+    <div class="tx-note">${t("purchase")} ${money(p.price)} · ${t("mortgage")} ${money(p.mortgageValue)}${p.mortgaged ? ` · ${t("mortgaged")}` : ""}</div>
+    <div class="property-actions"><button class="button" data-mortgage="${p.id}">${p.mortgaged ? t("unmortgage") : t("mortgage")}</button></div>
   </div>`).join("");
   els.propertyList.querySelectorAll("[data-mortgage]").forEach(btn => btn.addEventListener("click", () => toggleMortgage(btn.dataset.mortgage)));
 }
@@ -369,20 +693,20 @@ async function toggleMortgage(propertyId) {
     await runTransaction(db, async tx => {
       const pSnap = await tx.get(pRef);
       const playerSnap = await tx.get(playerRef);
-      if (!pSnap.exists()) throw new Error("Property no longer exists.");
+      if (!pSnap.exists()) throw new Error(t("propertyGone"));
       const p = pSnap.data();
-      if (p.ownerId !== currentPlayerId) throw new Error("This is not your property.");
+      if (p.ownerId !== currentPlayerId) throw new Error(t("notYourProperty"));
       const balance = Number(playerSnap.data().balance || 0);
       const value = Number(p.mortgageValue || 0);
       if (!p.mortgaged) {
         tx.update(playerRef, { balance: balance + value });
         tx.update(pRef, { mortgaged: true });
-        if (value > 0) tx.set(txRef, { type: "mortgage", fromId: "bank", toId: currentPlayerId, amount: value, reason: `Mortgaged ${p.name}`, createdAt: serverTimestamp(), reversed: false });
+        if (value > 0) tx.set(txRef, { type: "mortgage", fromId: "bank", toId: currentPlayerId, amount: value, reason: `${t("mortgagedAction")} ${p.name}`, createdAt: serverTimestamp(), reversed: false });
       } else {
-        if (balance < value) throw new Error("Not enough money to unmortgage this property.");
+        if (balance < value) throw new Error(t("notEnoughUnmortgage"));
         tx.update(playerRef, { balance: balance - value });
         tx.update(pRef, { mortgaged: false });
-        if (value > 0) tx.set(txRef, { type: "unmortgage", fromId: currentPlayerId, toId: "bank", amount: value, reason: `Unmortgaged ${p.name}`, createdAt: serverTimestamp(), reversed: false });
+        if (value > 0) tx.set(txRef, { type: "unmortgage", fromId: currentPlayerId, toId: "bank", amount: value, reason: `${t("unmortgagedAction")} ${p.name}`, createdAt: serverTimestamp(), reversed: false });
       }
     });
   } catch (err) { handleError(err); }
@@ -394,30 +718,37 @@ function escapeHtml(value) {
 
 function handleError(err) {
   console.error(err);
-  setStatus(err?.message || "Something went wrong.", true);
+  setStatus(err?.message || t("somethingWrong"), true);
 }
+
+applyLanguage();
 
 els.createGameBtn.addEventListener("click", createGame);
 els.joinGameBtn.addEventListener("click", joinGame);
 els.joinCodeInput.addEventListener("keydown", e => { if (e.key === "Enter") joinGame(); });
 els.leaveGameBtn.addEventListener("click", leaveGame);
-els.copyCodeBtn.addEventListener("click", async () => { await navigator.clipboard.writeText(gameId); setStatus("Game code copied."); });
+els.languageToggle.addEventListener("click", () => setLanguage(language === "en" ? "fi" : "en"));
+els.copyCodeBtn.addEventListener("click", async () => { await navigator.clipboard.writeText(gameId); setStatus("", false, "gameCodeCopied"); });
 els.addPlayerForm.addEventListener("submit", addPlayer);
 els.backToLobbyBtn.addEventListener("click", () => { currentPlayerId = null; localStorage.removeItem("monopolyPlayerId"); showOnly(els.lobbyView); renderPlayers(); });
 els.payPlayerBtn.addEventListener("click", () => openMoneyDialog("player"));
 els.payBankBtn.addEventListener("click", () => openMoneyDialog("bank-pay"));
 els.receiveBankBtn.addEventListener("click", () => openMoneyDialog("bank-receive"));
 els.moneyForm.addEventListener("submit", handleMoneySubmit);
+els.closeMoneyDialog.addEventListener("click", closeMoneyDialog);
+els.cancelMoneyDialog.addEventListener("click", closeMoneyDialog);
+els.moneyDialog.addEventListener("cancel", () => { els.moneyForm.reset(); moneyMode = null; });
 els.undoBtn.addEventListener("click", undoLastTransaction);
 els.propertyBtn.addEventListener("click", () => { renderProperties(); els.propertyDialog.showModal(); });
 els.closePropertyDialog.addEventListener("click", () => els.propertyDialog.close());
 els.addPropertyForm.addEventListener("submit", addProperty);
 
-setStatus("Signing in…");
+setStatus("", false, "signingIn");
 onAuthStateChanged(auth, async currentUser => {
   if (currentUser) {
     user = currentUser;
-    setStatus("Ready.");
+    setStatus("", false, "ready");
+    subscribeToKnownGames();
     if (gameId) {
       try {
         const snap = await getDoc(doc(db, "games", gameId));
