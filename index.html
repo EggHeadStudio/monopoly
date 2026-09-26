@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#101820" />
   <title>Monopoly Bank</title>
-  <link rel="stylesheet" href="style.css?v=20260926-13" />
+  <link rel="stylesheet" href="style.css?v=20260926-14" />
 </head>
 <body>
   <main class="shell">
@@ -86,8 +86,8 @@
         <button id="payBankBtn" class="action-card"><strong data-i18n="payBank">Pay bank</strong><span data-i18n="payBankCopy">Tax, property, house…</span></button>
         <button id="receiveBankBtn" class="action-card"><strong data-i18n="receive">Receive</strong><span data-i18n="receiveCopy">Salary, GO, bank…</span></button>
         <button id="propertyBtn" class="action-card"><strong data-i18n="properties">Properties</strong><span data-i18n="propertiesCopy">Buy and mortgage</span></button>
-        <button id="payFreeParkingBtn" class="action-card"><strong data-i18n="payFreeParking">Free Parking</strong><span data-i18n="payFreeParkingCopy">Add money to the pot</span></button>
-        <button id="claimFreeParkingBtn" class="action-card"><strong data-i18n="claimFreeParking">Free Parking</strong><span id="freeParkingPot">0</span></button>
+        <button id="payFreeParkingBtn" class="action-card"><strong data-i18n="payFreeParking">Pay to center</strong><span data-i18n="payFreeParkingCopy">Add money to the pot</span></button>
+        <button id="claimFreeParkingBtn" class="action-card"><strong data-i18n="claimFreeParking">Free Parking</strong><span><span data-i18n="claimPotPrefix">Claim pot:</span> <span id="freeParkingPot">0</span></span></button>
         <button id="privateMessagesBtn" class="action-card"><strong data-i18n="privateMessages">Private messages</strong><span data-i18n="privateMessagesCopy">Chat privately with a player</span><span id="privateMessageBadge" class="unread-badge hidden">0</span></button>
         <button id="diceRollBtn" class="action-card"><strong data-i18n="rollDice">Roll dice</strong><span data-i18n="rollDiceCopy">Roll two dice</span></button>
       </div>
@@ -166,7 +166,7 @@
         <select id="propertyBuyerSelect" required></select>
       </label>
       <label><span data-i18n="salePrice">Sale price</span>
-        <input id="propertySaleAmount" type="number" min="1" step="1" inputmode="decimal" required />
+        <input id="propertySaleAmount" type="number" min="0" step="1" inputmode="decimal" />
       </label>
       <div class="dialog-actions">
         <button id="cancelPropertySaleDialog" type="button" class="button" data-i18n="cancel">Cancel</button>
@@ -234,6 +234,6 @@
     </div>
   </dialog>
 
-  <script type="module" src="app.js?v=20260926-14"></script>
+  <script type="module" src="app.js?v=20260926-15"></script>
 </body>
 </html>

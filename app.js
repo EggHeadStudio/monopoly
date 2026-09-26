@@ -444,9 +444,10 @@ const translations = {
     payBankCopy: "Make a payment to the bank",
     receive: "Receive",
     receiveCopy: "Salary, GO, bank…",
-    payFreeParking: "Free Parking",
+    payFreeParking: "Pay to center",
     payFreeParkingCopy: "Add money to the pot",
     claimFreeParking: "Free Parking",
+    claimPotPrefix: "Claim pot:",
     properties: "Properties",
     propertiesCopy: "Buy and mortgage",
     privateMessages: "Private messages",
@@ -506,6 +507,7 @@ const translations = {
     sellHouse: "- house",
     details: "Details",
     sell: "Sell",
+    given: "Given",
     auction: "Auction",
     silentAuction: "Silent auction",
     bidAmount: "Bid amount",
@@ -632,9 +634,10 @@ const translations = {
     payBankCopy: "Suorita maksu pankille",
     receive: "Vastaanota",
     receiveCopy: "Palkka, lähtöruutu, pankki…",
-    payFreeParking: "Vapaa pysäköinti",
+    payFreeParking: "Maksa keskelle",
     payFreeParkingCopy: "Lisää rahaa pottiin",
     claimFreeParking: "Vapaa pysäköinti",
+    claimPotPrefix: "Lunasta potti:",
     properties: "Tontit",
     propertiesCopy: "Osta ja kiinnitä",
     privateMessages: "Yksityisviestit",
@@ -694,6 +697,7 @@ const translations = {
     sellHouse: "- talo",
     details: "Tiedot",
     sell: "Myy",
+    given: "Annettu",
     auction: "Huutokauppa",
     silentAuction: "Hiljainen huutokauppa",
     bidAmount: "Tarjous",
@@ -1645,7 +1649,7 @@ function renderTransactions() {
 }
 
 async function undoLastTransaction() {
-  const transaction = transactions.find(x => !x.reversed && x.fromId && x.toId && Number(x.amount) > 0);
+  const transaction = transactions.find(x => !x.reversed && x.fromId && x.toId && (Number(x.amount) > 0 || (x.type === "property-sale" && Number(x.amount) === 0)));
   if (!transaction) return setStatus("", true, "noUndo");
   try {
     const txRef = doc(db, "games", gameId, "transactions", transaction.id);
@@ -1935,7 +1939,7 @@ function openPropertySaleDialog(propertyId) {
   const data = propertyData(property);
   els.propertySaleTitle.textContent = `${t("sellProperty")}: ${data.name}`;
   els.propertyBuyerSelect.innerHTML = buyers.map(player => `<option value="${player.id}">${escapeHtml(player.name)}</option>`).join("");
-  els.propertySaleAmount.value = data.price;
+  els.propertySaleAmount.value = "";
   els.propertySaleDialog.showModal();
 }
 
@@ -1943,8 +1947,9 @@ async function sellProperty(event) {
   event.preventDefault();
   const propertyId = propertySaleId;
   const buyerId = els.propertyBuyerSelect.value;
-  const amount = Number(els.propertySaleAmount.value);
-  if (!propertyId || !buyerId || !Number.isFinite(amount) || amount <= 0) return;
+  const rawAmount = els.propertySaleAmount.value.trim();
+  const amount = rawAmount === "" ? 0 : Number(rawAmount);
+  if (!propertyId || !buyerId || !Number.isFinite(amount) || amount < 0) return;
   const propertyRef = doc(db, "games", gameId, "properties", propertyId);
   const sellerRef = doc(db, "games", gameId, "players", currentPlayerId);
   const buyerRef = doc(db, "games", gameId, "players", buyerId);
@@ -1968,7 +1973,7 @@ async function sellProperty(event) {
         fromId: buyerId,
         toId: currentPlayerId,
         amount,
-        reason: `${t("sell")} ${propertyDisplayName({ id: propertyId, ...property })}`,
+        reason: `${t(amount === 0 ? "given" : "sell")} ${propertyDisplayName({ id: propertyId, ...property })}`,
         propertyId,
         createdAt: serverTimestamp(),
         reversed: false
