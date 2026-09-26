@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#101820" />
   <title>Monopoly Bank</title>
-  <link rel="stylesheet" href="style.css?v=20260926-8" />
+  <link rel="stylesheet" href="style.css?v=20260926-10" />
 </head>
 <body>
   <main class="shell">
@@ -21,6 +21,7 @@
     </header>
 
     <div id="statusBar" class="status" data-status-key="connecting">Connecting…</div>
+    <div id="messageToast" class="message-toast hidden" role="status" aria-live="polite"></div>
 
     <section id="homeView" class="view card">
       <h2 data-i18n="startGame">Start a game</h2>
@@ -87,7 +88,7 @@
         <button id="propertyBtn" class="action-card"><strong data-i18n="properties">Properties</strong><span data-i18n="propertiesCopy">Buy and mortgage</span></button>
         <button id="payFreeParkingBtn" class="action-card"><strong data-i18n="payFreeParking">Free Parking</strong><span data-i18n="payFreeParkingCopy">Add money to the pot</span></button>
         <button id="claimFreeParkingBtn" class="action-card"><strong data-i18n="claimFreeParking">Free Parking</strong><span id="freeParkingPot">0</span></button>
-        <button id="privateMessagesBtn" class="action-card"><strong data-i18n="privateMessages">Private messages</strong><span data-i18n="privateMessagesCopy">Chat privately with a player</span></button>
+        <button id="privateMessagesBtn" class="action-card"><strong data-i18n="privateMessages">Private messages</strong><span data-i18n="privateMessagesCopy">Chat privately with a player</span><span id="privateMessageBadge" class="unread-badge hidden">0</span></button>
       </div>
 
       <div class="card">
@@ -218,6 +219,6 @@
     </div>
   </dialog>
 
-  <script type="module" src="app.js?v=20260926-9"></script>
+  <script type="module" src="app.js?v=20260926-11"></script>
 </body>
 </html>

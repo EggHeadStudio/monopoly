@@ -74,9 +74,13 @@ textarea { resize: vertical; min-height: 84px; }
 .currency-label { color: #6c776f; }
 .quick-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 14px 0; }
 .action-card { text-align: left; min-height: 105px; border: 1px solid #dce3dc; border-radius: 18px; background: #fff; padding: 16px; color: #173225; }
+.action-card { position: relative; }
 .action-card strong, .action-card span { display: block; }
 .action-card strong { font-size: 1.04rem; margin-bottom: 6px; }
 .action-card span { color: #758077; font-size: .84rem; line-height: 1.35; }
+.action-card .unread-badge { position: absolute; top: 8px; right: 8px; display: grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px; background: #c33c3c; color: #fff; font-size: .7rem; font-weight: 900; box-shadow: 0 2px 8px rgba(0,0,0,.18); }
+.message-toast { position: fixed; z-index: 20; right: max(16px, env(safe-area-inset-right)); top: max(16px, env(safe-area-inset-top)); max-width: min(360px, calc(100vw - 32px)); padding: 12px 16px; border-radius: 14px; background: #173225; color: #fff; box-shadow: 0 12px 35px rgba(0,0,0,.22); font-weight: 800; animation: toast-in .18s ease-out; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
 .transaction-list, .property-list { display: grid; gap: 8px; }
 .transaction { border-bottom: 1px solid #edf0ed; padding: 9px 0; display: grid; grid-template-columns: 1fr auto; gap: 10px; }
 .transaction:last-child { border-bottom: 0; }

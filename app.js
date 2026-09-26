@@ -391,6 +391,8 @@ let transactions = [];
 let properties = [];
 let privateMessages = [];
 let replyToMessage = null;
+let privateMessageSnapshotInitialized = false;
+let privateMessageToastTimer = null;
 let knownGames = [];
 let unsubscribeGames = null;
 let unsubscribeGame = null;
@@ -445,6 +447,7 @@ const translations = {
     propertiesCopy: "Buy and mortgage",
     privateMessages: "Private messages",
     privateMessagesCopy: "Chat privately with a player",
+    newPrivateMessage: "New message from {name}",
     messagePlayer: "Conversation with",
     writeMessage: "Message",
     sendMessage: "Send",
@@ -619,6 +622,7 @@ const translations = {
     propertiesCopy: "Osta ja kiinnitä",
     privateMessages: "Yksityisviestit",
     privateMessagesCopy: "Viestittele yksityisesti pelaajan kanssa",
+    newPrivateMessage: "Uusi viesti pelaajalta {name}",
     messagePlayer: "Keskustelu pelaajan kanssa",
     writeMessage: "Viesti",
     sendMessage: "Lähetä",
@@ -768,7 +772,8 @@ const els = {
   currentPlayerName: $("currentPlayerName"), currentBalance: $("currentBalance"),
   payPlayerBtn: $("payPlayerBtn"), payBankBtn: $("payBankBtn"), receiveBankBtn: $("receiveBankBtn"),
   payFreeParkingBtn: $("payFreeParkingBtn"), claimFreeParkingBtn: $("claimFreeParkingBtn"), freeParkingPot: $("freeParkingPot"),
-  privateMessagesBtn: $("privateMessagesBtn"), privateMessagesDialog: $("privateMessagesDialog"), closePrivateMessages: $("closePrivateMessages"),
+  privateMessagesBtn: $("privateMessagesBtn"), privateMessageBadge: $("privateMessageBadge"), messageToast: $("messageToast"),
+  privateMessagesDialog: $("privateMessagesDialog"), closePrivateMessages: $("closePrivateMessages"),
   messageRecipientSelect: $("messageRecipientSelect"), privateMessageList: $("privateMessageList"), privateMessageForm: $("privateMessageForm"),
   privateMessageText: $("privateMessageText"), replyContext: $("replyContext"), cancelReplyBtn: $("cancelReplyBtn"),
   propertyBtn: $("propertyBtn"), gamePlayers: $("gamePlayers"), backToLobbyBtn: $("backToLobbyBtn"),
@@ -812,6 +817,7 @@ function applyLanguage() {
   renderTransactions();
   renderProperties();
   renderAuction();
+  renderPrivateMessageBadge();
 }
 
 function setLanguage(nextLanguage) {
@@ -1024,10 +1030,26 @@ function subscribeToGame() {
     renderProperties();
   }, handleError);
 
+  privateMessageSnapshotInitialized = false;
   unsubscribePrivateMessages = onSnapshot(
     query(collection(db, "games", gameId, "privateMessages"), orderBy("createdAt", "asc"), limit(300)),
     snap => {
+      const previousIds = new Set(privateMessages.map(message => message.id));
       privateMessages = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const newIncoming = privateMessages.filter(message =>
+        !previousIds.has(message.id) && message.recipientId === currentPlayerId && message.senderId !== currentPlayerId
+      );
+      if (privateMessageSnapshotInitialized && newIncoming.length) {
+        const activeRecipientId = els.messageRecipientSelect.value;
+        const viewingConversation = els.privateMessagesDialog.open && activeRecipientId === newIncoming[newIncoming.length - 1].senderId;
+        if (viewingConversation) markConversationRead(activeRecipientId);
+        else {
+          const sender = players.find(player => player.id === newIncoming[newIncoming.length - 1].senderId);
+          showPrivateMessageToast(sender?.name || t("player"));
+        }
+      }
+      privateMessageSnapshotInitialized = true;
+      renderPrivateMessageBadge();
       renderPrivateMessages();
     },
     handleError
@@ -1095,6 +1117,7 @@ function selectPlayer(playerId) {
 
 function renderPlayers() {
   renderPlayerOptions();
+  renderPrivateMessageBadge();
   const row = p => `
     <div class="player-row ${p.id === currentPlayerId ? "active" : ""}">
       ${playerToken(p)}
@@ -1138,6 +1161,51 @@ async function deletePlayer(playerId) {
     }
     setStatus("", false, "playerDeleted");
   } catch (err) { handleError(err); }
+}
+
+function readPrivateMessageIds() {
+  if (!gameId || !currentPlayerId) return new Set();
+  try {
+    return new Set(JSON.parse(localStorage.getItem(`monopolyReadMessages:${gameId}:${currentPlayerId}`) || "[]"));
+  } catch {
+    return new Set();
+  }
+}
+
+function saveReadPrivateMessageIds(readIds) {
+  if (!gameId || !currentPlayerId) return;
+  localStorage.setItem(`monopolyReadMessages:${gameId}:${currentPlayerId}`, JSON.stringify([...readIds].slice(-600)));
+}
+
+function unreadPrivateMessages() {
+  const readIds = readPrivateMessageIds();
+  return privateMessages.filter(message => message.recipientId === currentPlayerId && message.senderId !== currentPlayerId && !readIds.has(message.id));
+}
+
+function renderPrivateMessageBadge() {
+  if (!els.privateMessageBadge) return;
+  const count = unreadPrivateMessages().length;
+  els.privateMessageBadge.textContent = count > 99 ? "99+" : String(count);
+  els.privateMessageBadge.classList.toggle("hidden", count === 0);
+  els.privateMessagesBtn.setAttribute("aria-label", `${t("privateMessages")}${count ? ` (${count})` : ""}`);
+}
+
+function showPrivateMessageToast(senderName) {
+  if (!els.messageToast) return;
+  els.messageToast.textContent = t("newPrivateMessage").replace("{name}", senderName);
+  els.messageToast.classList.remove("hidden");
+  if (privateMessageToastTimer) clearTimeout(privateMessageToastTimer);
+  privateMessageToastTimer = setTimeout(() => els.messageToast.classList.add("hidden"), 4500);
+}
+
+function markConversationRead(recipientId) {
+  if (!recipientId || !currentPlayerId) return;
+  const readIds = readPrivateMessageIds();
+  privateMessages.forEach(message => {
+    if (message.senderId === recipientId && message.recipientId === currentPlayerId) readIds.add(message.id);
+  });
+  saveReadPrivateMessageIds(readIds);
+  renderPrivateMessageBadge();
 }
 
 function privateMessageConversation() {
@@ -1211,6 +1279,7 @@ function openPrivateMessages() {
   els.messageRecipientSelect.innerHTML = recipients.map(player => `<option value="${player.id}">${escapeHtml(player.name)}</option>`).join("");
   if (recipients.some(player => player.id === previousRecipient)) els.messageRecipientSelect.value = previousRecipient;
   replyToMessage = null;
+  markConversationRead(els.messageRecipientSelect.value);
   renderPrivateMessages();
   if (!els.privateMessagesDialog.open) els.privateMessagesDialog.showModal();
 }
@@ -2028,7 +2097,7 @@ els.payFreeParkingBtn.addEventListener("click", () => openMoneyDialog("free-park
 els.claimFreeParkingBtn.addEventListener("click", claimFreeParking);
 els.privateMessagesBtn.addEventListener("click", openPrivateMessages);
 els.closePrivateMessages.addEventListener("click", () => els.privateMessagesDialog.close());
-els.messageRecipientSelect.addEventListener("change", () => { replyToMessage = null; renderPrivateMessages(); });
+els.messageRecipientSelect.addEventListener("change", () => { replyToMessage = null; markConversationRead(els.messageRecipientSelect.value); renderPrivateMessages(); });
 els.privateMessageForm.addEventListener("submit", sendPrivateMessage);
 els.cancelReplyBtn.addEventListener("click", () => { replyToMessage = null; renderReplyContext(); });
 els.moneyForm.addEventListener("submit", handleMoneySubmit);
