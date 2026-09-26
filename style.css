@@ -60,6 +60,26 @@ textarea { resize: vertical; min-height: 84px; }
 .player-list, .game-list { display: grid; gap: 8px; }
 .player-row, .game-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid #e0e5e0; background: #fafbf8; border-radius: 14px; padding: 12px 13px; }
 .player-row.active { border-color: #75a389; background: #f0f8f3; }
+.game-player-ownership { border: 1px solid #e0e5e0; border-radius: 14px; background: #fafbf8; overflow: hidden; }
+.game-player-ownership.active { border-color: #75a389; background: #f0f8f3; }
+.game-player-summary { display: grid; grid-template-columns: 42px minmax(72px, .8fr) minmax(54px, 1.2fr) 14px; align-items: center; gap: 10px; padding: 10px 12px; cursor: pointer; list-style: none; }
+.game-player-summary::-webkit-details-marker { display: none; }
+.game-player-summary .player-main { display: grid; gap: 2px; }
+.owned-property-marks { display: flex; align-items: center; justify-content: flex-end; gap: 3px; min-width: 0; overflow: hidden; }
+.owned-property-mark { flex: 0 0 auto; width: 9px; height: 22px; border-radius: 4px; background: var(--property-color); border: 1px solid rgba(0,0,0,.12); }
+.owned-property-overflow { color: #69756c; font-size: .7rem; font-weight: 850; white-space: nowrap; }
+.no-owned-mark { color: #a6afa8; font-size: .85rem; }
+.ownership-chevron { width: 8px; height: 8px; border-right: 2px solid #7b867d; border-bottom: 2px solid #7b867d; transform: rotate(45deg) translateY(-2px); transition: transform .15s ease; }
+.game-player-ownership[open] .ownership-chevron { transform: rotate(225deg) translate(-1px, -1px); }
+.player-ownership-details { display: grid; gap: 5px; padding: 0 12px 10px 64px; }
+.owned-property { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto auto; align-items: center; gap: 8px; min-height: 28px; color: #465348; font-size: .82rem; }
+.owned-property-color { align-self: stretch; border-radius: 5px; background: var(--property-color); }
+.owned-property-name { overflow: hidden; text-overflow: ellipsis; }
+.owned-property strong { color: #667268; font-size: .75rem; }
+.owned-property-rent { grid-column: 2 / -1; color: #667268; font-size: .74rem; }
+.owned-property-rent strong { color: #276749; font-size: .78rem; }
+.owned-property-mortgaged { color: #9d2b2b; font-size: .65rem; font-weight: 900; }
+.ownership-empty { padding: 4px 0; text-align: left; font-size: .82rem; }
 .player-main { min-width: 0; }
 .player-name { font-weight: 850; overflow: hidden; text-overflow: ellipsis; }
 .player-balance { color: #677369; font-size: .86rem; }
@@ -111,6 +131,17 @@ textarea { resize: vertical; min-height: 84px; }
 .quoted-message { display: grid; gap: 2px; margin-top: 7px; padding-left: 8px; border-left: 3px solid #93ae9a; color: #6b756d; font-size: .78rem; }
 .quoted-message span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .reply-context { padding: 8px 10px; border-left: 3px solid #276749; background: #f0f7f2; color: #465348; border-radius: 0 8px 8px 0; font-size: .82rem; }
+.dice-modal .modal-card { text-align: center; }
+.dice-player-name { color: #667268; font-weight: 800; }
+.dice-pair { min-height: 104px; display: flex; align-items: center; justify-content: center; gap: 18px; padding: 8px; }
+.die-face { width: 82px; height: 82px; display: grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr); gap: 4px; padding: 11px; border: 1px solid #d6ddd7; border-radius: 16px; background: linear-gradient(145deg, #fff, #f0f3ef); box-shadow: 0 7px 18px rgba(24,49,38,.13); }
+.die-pip { width: 13px; height: 13px; align-self: center; justify-self: center; border-radius: 50%; background: transparent; }
+.die-pip.shown { background: #244a35; box-shadow: inset 0 1px 2px rgba(0,0,0,.2); }
+.die-face.rolling { animation: dice-roll .72s cubic-bezier(.2,.75,.3,1); }
+@keyframes dice-roll { 0% { transform: rotate(0) translateY(0); } 25% { transform: rotate(95deg) translateY(-12px); } 55% { transform: rotate(205deg) translateY(4px); } 78% { transform: rotate(310deg) translateY(-6px); } 100% { transform: rotate(360deg) translateY(0); } }
+.dice-total { min-height: 24px; color: #667268; font-size: .9rem; font-weight: 800; }
+.dice-result { min-height: 32px; color: #276749; font-weight: 900; }
+.dice-result:not(:empty) { padding: 7px 10px; border-radius: 10px; background: #eef8f1; }
 .modal { border: 0; background: transparent; padding: 12px; width: min(520px, 100%); max-width: none; }
 .modal::backdrop { background: rgba(9,20,15,.55); backdrop-filter: blur(3px); }
 .modal-card { background: #fff; border-radius: 22px; padding: 20px; box-shadow: 0 20px 70px rgba(0,0,0,.25); display: grid; gap: 13px; }

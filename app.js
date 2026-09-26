@@ -391,6 +391,10 @@ let transactions = [];
 let properties = [];
 let privateMessages = [];
 let replyToMessage = null;
+let diceDoubleStreaks = new Map();
+let diceLastTotals = new Map();
+let diceRollInProgress = false;
+let expandedPlayerOwnership = new Set();
 let privateMessageSnapshotInitialized = false;
 let privateMessageToastTimer = null;
 let knownGames = [];
@@ -437,7 +441,7 @@ const translations = {
     payPlayer: "Pay player",
     payPlayerCopy: "Transfer money instantly",
     payBank: "Pay bank",
-    payBankCopy: "Tax, property, house…",
+    payBankCopy: "Make a payment to the bank",
     receive: "Receive",
     receiveCopy: "Salary, GO, bank…",
     payFreeParking: "Free Parking",
@@ -460,6 +464,19 @@ const translations = {
     switchPlayer: "Switch player",
     recentActivity: "Recent activity",
     undoLast: "Undo last",
+    rollDice: "Roll dice",
+    rollDiceCopy: "Roll two dice",
+    diceTotal: "Total",
+    diceDoubleAgain: "Double! You may roll again.",
+    diceJailed: "Third double in a row — go to jail!",
+    diceNotDouble: "No double. Turn ends.",
+    diceRolling: "Rolling…",
+    ownedProperties: "Owned properties",
+    noOwnedProperties: "No properties owned",
+    currentRent: "Rent now",
+    diceRentFormula: "{multiplier} × dice roll",
+    housesCount: "{count} houses",
+    hotelCount: "Hotel",
     payment: "Payment",
     payAnotherPlayer: "Pay another player",
     receiveFromBank: "Receive from bank",
@@ -612,7 +629,7 @@ const translations = {
     payPlayer: "Maksa pelaajalle",
     payPlayerCopy: "Siirrä rahaa heti",
     payBank: "Maksa pankille",
-    payBankCopy: "Vero, tontti, talo…",
+    payBankCopy: "Suorita maksu pankille",
     receive: "Vastaanota",
     receiveCopy: "Palkka, lähtöruutu, pankki…",
     payFreeParking: "Vapaa pysäköinti",
@@ -635,6 +652,19 @@ const translations = {
     switchPlayer: "Vaihda pelaajaa",
     recentActivity: "Viime tapahtumat",
     undoLast: "Kumoa viimeisin",
+    rollDice: "Heitä noppaa",
+    rollDiceCopy: "Heitä kahta noppaa",
+    diceTotal: "Yhteensä",
+    diceDoubleAgain: "Tuplat! Saat heittää uudelleen.",
+    diceJailed: "Kolmannet tuplat peräkkäin — vankilaan!",
+    diceNotDouble: "Ei tuplia. Vuoro päättyy.",
+    diceRolling: "Heitetään…",
+    ownedProperties: "Omistetut kohteet",
+    noOwnedProperties: "Ei omistettuja kohteita",
+    currentRent: "Vuokra nyt",
+    diceRentFormula: "{multiplier} × noppien summa",
+    housesCount: "{count} taloa",
+    hotelCount: "Hotelli",
     payment: "Maksu",
     payAnotherPlayer: "Maksa toiselle pelaajalle",
     receiveFromBank: "Vastaanota pankilta",
@@ -772,6 +802,8 @@ const els = {
   currentPlayerName: $("currentPlayerName"), currentBalance: $("currentBalance"),
   payPlayerBtn: $("payPlayerBtn"), payBankBtn: $("payBankBtn"), receiveBankBtn: $("receiveBankBtn"),
   payFreeParkingBtn: $("payFreeParkingBtn"), claimFreeParkingBtn: $("claimFreeParkingBtn"), freeParkingPot: $("freeParkingPot"),
+  diceRollBtn: $("diceRollBtn"), diceDialog: $("diceDialog"), closeDiceDialog: $("closeDiceDialog"),
+  dicePlayerName: $("dicePlayerName"), dicePair: $("dicePair"), diceTotal: $("diceTotal"), diceResult: $("diceResult"), rollDiceAgainBtn: $("rollDiceAgainBtn"),
   privateMessagesBtn: $("privateMessagesBtn"), privateMessageBadge: $("privateMessageBadge"), messageToast: $("messageToast"),
   privateMessagesDialog: $("privateMessagesDialog"), closePrivateMessages: $("closePrivateMessages"),
   messageRecipientSelect: $("messageRecipientSelect"), privateMessageList: $("privateMessageList"), privateMessageForm: $("privateMessageForm"),
@@ -1028,6 +1060,7 @@ function subscribeToGame() {
     properties = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     renderPropertySelect();
     renderProperties();
+    renderPlayers();
   }, handleError);
 
   privateMessageSnapshotInitialized = false;
@@ -1115,6 +1148,63 @@ function selectPlayer(playerId) {
   renderTransactions();
 }
 
+function diceStreakKey() {
+  return `${gameId || ""}:${currentPlayerId || ""}`;
+}
+
+function openDiceDialog() {
+  const player = players.find(item => item.id === currentPlayerId);
+  if (!player) return;
+  els.dicePlayerName.textContent = player.name;
+  els.dicePair.innerHTML = "";
+  els.diceTotal.textContent = "";
+  els.diceResult.textContent = "";
+  els.rollDiceAgainBtn.disabled = false;
+  if (!els.diceDialog.open) els.diceDialog.showModal();
+}
+
+function dieMarkup(value, rolling = false) {
+  const pipsByValue = {
+    1: [4],
+    2: [0, 8],
+    3: [0, 4, 8],
+    4: [0, 2, 6, 8],
+    5: [0, 2, 4, 6, 8],
+    6: [0, 2, 3, 5, 6, 8]
+  };
+  const pips = new Set(pipsByValue[value] || []);
+  return `<div class="die-face ${rolling ? "rolling" : ""}" aria-label="${value}">${Array.from({ length: 9 }, (_, index) => `<span class="die-pip ${pips.has(index) ? "shown" : ""}"></span>`).join("")}</div>`;
+}
+
+function delay(milliseconds) {
+  return new Promise(resolve => setTimeout(resolve, milliseconds));
+}
+
+async function rollDice() {
+  if (diceRollInProgress || !currentPlayerId) return;
+  diceRollInProgress = true;
+  els.rollDiceAgainBtn.disabled = true;
+  els.diceResult.textContent = t("diceRolling");
+  els.diceTotal.textContent = "";
+  els.dicePair.innerHTML = `${dieMarkup(1, true)}${dieMarkup(6, true)}`;
+  await delay(720);
+  const first = crypto.getRandomValues(new Uint32Array(1))[0] % 6 + 1;
+  const second = crypto.getRandomValues(new Uint32Array(1))[0] % 6 + 1;
+  diceLastTotals.set(diceStreakKey(), first + second);
+  const isDouble = first === second;
+  const streakKey = diceStreakKey();
+  const streak = isDouble ? (diceDoubleStreaks.get(streakKey) || 0) + 1 : 0;
+  if (isDouble && streak >= 3) diceDoubleStreaks.set(streakKey, 0);
+  else diceDoubleStreaks.set(streakKey, streak);
+  els.dicePair.innerHTML = `${dieMarkup(first)}${dieMarkup(second)}`;
+  els.diceTotal.textContent = `${t("diceTotal")}: ${first + second}`;
+  if (isDouble && streak >= 3) els.diceResult.textContent = t("diceJailed");
+  else if (isDouble) els.diceResult.textContent = t("diceDoubleAgain");
+  else els.diceResult.textContent = t("diceNotDouble");
+  els.rollDiceAgainBtn.disabled = false;
+  diceRollInProgress = false;
+}
+
 function renderPlayers() {
   renderPlayerOptions();
   renderPrivateMessageBadge();
@@ -1132,14 +1222,75 @@ function renderPlayers() {
     </div>`;
 
   els.lobbyPlayers.innerHTML = players.length ? players.map(row).join("") : `<div class="empty">${t("noPlayersYet")}</div>`;
-  els.gamePlayers.innerHTML = players.length ? players.map(p => `
-    <div class="player-row ${p.id === currentPlayerId ? "active" : ""}">
-      ${playerToken(p)}
-      <div class="player-main"><div class="player-name">${escapeHtml(p.name)}</div><div class="player-balance">${money(p.balance)}</div></div>
-    </div>`).join("") : `<div class="empty">${t("noPlayers")}</div>`;
+  els.gamePlayers.innerHTML = players.length ? players.map(p => renderGamePlayer(p)).join("") : `<div class="empty">${t("noPlayers")}</div>`;
 
   els.lobbyPlayers.querySelectorAll("[data-player]").forEach(btn => btn.addEventListener("click", () => selectPlayer(btn.dataset.player)));
   els.lobbyPlayers.querySelectorAll("[data-delete-player]").forEach(btn => btn.addEventListener("click", () => deletePlayer(btn.dataset.deletePlayer)));
+  els.gamePlayers.querySelectorAll("[data-player-ownership]").forEach(details => details.addEventListener("toggle", () => {
+    if (details.open) expandedPlayerOwnership.add(details.dataset.playerOwnership);
+    else expandedPlayerOwnership.delete(details.dataset.playerOwnership);
+  }));
+}
+
+function propertiesOwnedBy(playerId) {
+  return properties
+    .filter(property => property.ownerId === playerId)
+    .sort((a, b) => propertyDisplayName(a).localeCompare(propertyDisplayName(b), language));
+}
+
+function propertyOwnershipMarkup(property) {
+  const data = propertyData(property);
+  const houses = Number(property.houses || 0);
+  const buildingLabel = houses >= 5 ? t("hotelCount") : houses > 0 ? t("housesCount").replace("{count}", houses) : "";
+  const rentDue = propertyRentDue(property);
+  return `<div class="owned-property" style="--property-color: ${data.color}" title="${escapeHtml(data.name)}">
+    <span class="owned-property-color"></span>
+    <span class="owned-property-name">${escapeHtml(data.name)}</span>
+    ${buildingLabel ? `<strong>${escapeHtml(buildingLabel)}</strong>` : ""}
+    <span class="owned-property-rent"><span>${t("currentRent")}:</span> <strong>${escapeHtml(rentDue)}</strong></span>
+    ${property.mortgaged ? `<span class="owned-property-mortgaged">${escapeHtml(t("mortgaged"))}</span>` : ""}
+  </div>`;
+}
+
+function propertyRentDue(property) {
+  const data = propertyData(property);
+  if (data.group === "utility") {
+    const utilityCount = ownedGroupProperties(property.ownerId, "utility").length;
+    const multiplier = utilityCount >= 2 ? 10 : 4;
+    const diceTotal = diceLastTotals.get(`${gameId || ""}:${property.ownerId}`);
+    return Number.isInteger(diceTotal)
+      ? money(multiplier * diceTotal)
+      : t("diceRentFormula").replace("{multiplier}", multiplier);
+  }
+  if (data.group === "station") {
+    const stationCount = ownedGroupProperties(property.ownerId, "station").length;
+    const rentIndex = Math.max(0, Math.min(stationCount - 1, data.rents.length - 1));
+    return data.rents.length ? money(data.rents[rentIndex]) : "-";
+  }
+  if (!data.rents.length) return "-";
+  return money(data.rents[Math.min(Math.max(0, data.houses), data.rents.length - 1)]);
+}
+
+function renderGamePlayer(player) {
+  const owned = propertiesOwnedBy(player.id);
+  const isExpanded = expandedPlayerOwnership.has(player.id);
+  const compactMarks = owned.length
+    ? owned.slice(0, 12).map(property => {
+      const color = propertyData(property).color;
+      return `<span class="owned-property-mark" style="--property-color: ${color}" title="${escapeHtml(propertyDisplayName(property))}"></span>`;
+    }).join("") + (owned.length > 12 ? `<span class="owned-property-overflow">+${owned.length - 12}</span>` : "")
+    : `<span class="no-owned-mark">—</span>`;
+  return `<details class="game-player-ownership ${player.id === currentPlayerId ? "active" : ""}" data-player-ownership="${player.id}" ${isExpanded ? "open" : ""}>
+    <summary class="game-player-summary">
+      ${playerToken(player)}
+      <span class="player-main"><span class="player-name">${escapeHtml(player.name)}</span><span class="player-balance">${money(player.balance)}</span></span>
+      <span class="owned-property-marks" aria-label="${escapeHtml(t("ownedProperties"))}">${compactMarks}</span>
+      <span class="ownership-chevron" aria-hidden="true"></span>
+    </summary>
+    <div class="player-ownership-details">
+      ${owned.length ? owned.map(propertyOwnershipMarkup).join("") : `<div class="empty ownership-empty">${t("noOwnedProperties")}</div>`}
+    </div>
+  </details>`;
 }
 
 async function deletePlayer(playerId) {
@@ -2095,6 +2246,9 @@ els.payBankBtn.addEventListener("click", () => openMoneyDialog("bank-pay"));
 els.receiveBankBtn.addEventListener("click", () => openMoneyDialog("bank-receive"));
 els.payFreeParkingBtn.addEventListener("click", () => openMoneyDialog("free-parking-pay"));
 els.claimFreeParkingBtn.addEventListener("click", claimFreeParking);
+els.diceRollBtn.addEventListener("click", openDiceDialog);
+els.rollDiceAgainBtn.addEventListener("click", rollDice);
+els.closeDiceDialog.addEventListener("click", () => els.diceDialog.close());
 els.privateMessagesBtn.addEventListener("click", openPrivateMessages);
 els.closePrivateMessages.addEventListener("click", () => els.privateMessagesDialog.close());
 els.messageRecipientSelect.addEventListener("change", () => { replyToMessage = null; markConversationRead(els.messageRecipientSelect.value); renderPrivateMessages(); });

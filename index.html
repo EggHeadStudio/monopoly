@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#101820" />
   <title>Monopoly Bank</title>
-  <link rel="stylesheet" href="style.css?v=20260926-10" />
+  <link rel="stylesheet" href="style.css?v=20260926-13" />
 </head>
 <body>
   <main class="shell">
@@ -89,6 +89,7 @@
         <button id="payFreeParkingBtn" class="action-card"><strong data-i18n="payFreeParking">Free Parking</strong><span data-i18n="payFreeParkingCopy">Add money to the pot</span></button>
         <button id="claimFreeParkingBtn" class="action-card"><strong data-i18n="claimFreeParking">Free Parking</strong><span id="freeParkingPot">0</span></button>
         <button id="privateMessagesBtn" class="action-card"><strong data-i18n="privateMessages">Private messages</strong><span data-i18n="privateMessagesCopy">Chat privately with a player</span><span id="privateMessageBadge" class="unread-badge hidden">0</span></button>
+        <button id="diceRollBtn" class="action-card"><strong data-i18n="rollDice">Roll dice</strong><span data-i18n="rollDiceCopy">Roll two dice</span></button>
       </div>
 
       <div class="card">
@@ -219,6 +220,20 @@
     </div>
   </dialog>
 
-  <script type="module" src="app.js?v=20260926-11"></script>
+  <dialog id="diceDialog" class="modal dice-modal">
+    <div class="modal-card">
+      <div class="section-heading">
+        <h2 data-i18n="rollDice">Roll dice</h2>
+        <button id="closeDiceDialog" type="button" class="icon-button" aria-label="Close" data-i18n-aria-label="close">×</button>
+      </div>
+      <div id="dicePlayerName" class="dice-player-name"></div>
+      <div id="dicePair" class="dice-pair" aria-live="polite"></div>
+      <div id="diceTotal" class="dice-total"></div>
+      <div id="diceResult" class="dice-result" aria-live="polite"></div>
+      <button id="rollDiceAgainBtn" class="button primary" type="button" data-i18n="rollDice">Roll dice</button>
+    </div>
+  </dialog>
+
+  <script type="module" src="app.js?v=20260926-14"></script>
 </body>
 </html>
