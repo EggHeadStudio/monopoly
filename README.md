@@ -14,6 +14,8 @@ A static HTML/CSS/JavaScript Monopoly money manager that runs on GitHub Pages an
 - Undo the latest non-reversed transaction
 - Buy properties
 - Mortgage / unmortgage properties
+- Private player-to-player messages with replies
+- Delete a game and its players, transactions, properties, and private messages
 - No Node, Flask, npm or build step required
 
 ## 1. Create the Firebase project
@@ -32,6 +34,7 @@ A static HTML/CSS/JavaScript Monopoly money manager that runs on GitHub Pages an
 5. Create the database.
 
 You do not need to manually create collections. The app creates them automatically.
+Player conversations are stored in the `privateMessages` subcollection. Its access rule is included in `firestore.rules`.
 
 ## 3. Enable Anonymous Authentication
 
@@ -49,9 +52,12 @@ This lets every browser receive a temporary Firebase user ID without requiring a
 2. Replace the rule contents with the contents of `firestore.rules` from this repository.
 3. Click **Publish**.
 
+Publish the latest repository rules after adding features that use a new Firestore collection, including private messages.
+
 These MVP rules require a Firebase-authenticated session. The app uses anonymous authentication automatically.
 
 Important: this app stores only board-game data. The rule set is intentionally simple for private/family use and is not appropriate for sensitive information.
+Private-message conversations are separated in the app by sender and recipient, but use the same authenticated game-invitation trust model as the other game data. Do not use this for confidential or sensitive messages.
 
 ## 5. Register the web app
 

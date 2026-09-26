@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#101820" />
   <title>Monopoly Bank</title>
-  <link rel="stylesheet" href="style.css?v=20260925-4" />
+  <link rel="stylesheet" href="style.css?v=20260926-8" />
 </head>
 <body>
   <main class="shell">
@@ -85,6 +85,9 @@
         <button id="payBankBtn" class="action-card"><strong data-i18n="payBank">Pay bank</strong><span data-i18n="payBankCopy">Tax, property, house…</span></button>
         <button id="receiveBankBtn" class="action-card"><strong data-i18n="receive">Receive</strong><span data-i18n="receiveCopy">Salary, GO, bank…</span></button>
         <button id="propertyBtn" class="action-card"><strong data-i18n="properties">Properties</strong><span data-i18n="propertiesCopy">Buy and mortgage</span></button>
+        <button id="payFreeParkingBtn" class="action-card"><strong data-i18n="payFreeParking">Free Parking</strong><span data-i18n="payFreeParkingCopy">Add money to the pot</span></button>
+        <button id="claimFreeParkingBtn" class="action-card"><strong data-i18n="claimFreeParking">Free Parking</strong><span id="freeParkingPot">0</span></button>
+        <button id="privateMessagesBtn" class="action-card"><strong data-i18n="privateMessages">Private messages</strong><span data-i18n="privateMessagesCopy">Chat privately with a player</span></button>
       </div>
 
       <div class="card">
@@ -136,22 +139,85 @@
         <button id="closePropertyDialog" type="button" class="icon-button" aria-label="Close" data-i18n-aria-label="close">×</button>
       </div>
       <form id="addPropertyForm" class="stack compact">
-        <label><span data-i18n="propertyName">Property name</span>
-          <input id="propertyName" maxlength="50" placeholder="Boardwalk" data-i18n-placeholder="boardwalk" required />
+        <label><span data-i18n="chooseProperty">Choose property</span>
+          <input id="propertyPresetSelect" type="hidden" required />
         </label>
-        <label><span data-i18n="purchasePrice">Purchase price</span>
-          <input id="propertyPrice" type="number" min="0" step="1" value="0" required />
-        </label>
-        <label><span data-i18n="mortgageValue">Mortgage value</span>
-          <input id="mortgageValue" type="number" min="0" step="1" value="0" required />
-        </label>
-        <button class="button primary" type="submit" data-i18n="buyProperty">Buy property</button>
+        <button id="propertyPresetToggle" class="property-choice selected" type="button"></button>
+        <div id="propertyPresetChoices" class="property-choice-list hidden"></div>
+        <div class="property-buy-actions">
+          <button class="button primary" type="submit" data-i18n="buyProperty">Buy property</button>
+          <button id="auctionSelectedPropertyBtn" class="button" type="button" data-i18n="auction">Auction</button>
+        </div>
       </form>
       <div class="divider"><span data-i18n="yourProperties">Your properties</span></div>
       <div id="propertyList" class="property-list"></div>
     </div>
   </dialog>
 
-  <script type="module" src="app.js?v=20260925-4"></script>
+  <dialog id="propertySaleDialog" class="modal">
+    <form id="propertySaleForm" class="modal-card">
+      <div class="section-heading">
+        <h2 id="propertySaleTitle" data-i18n="sellProperty">Sell property</h2>
+        <button id="closePropertySaleDialog" type="button" class="icon-button" aria-label="Close" data-i18n-aria-label="close">×</button>
+      </div>
+      <label><span data-i18n="buyer">Buyer</span>
+        <select id="propertyBuyerSelect" required></select>
+      </label>
+      <label><span data-i18n="salePrice">Sale price</span>
+        <input id="propertySaleAmount" type="number" min="1" step="1" inputmode="decimal" required />
+      </label>
+      <div class="dialog-actions">
+        <button id="cancelPropertySaleDialog" type="button" class="button" data-i18n="cancel">Cancel</button>
+        <button type="submit" class="button primary" data-i18n="confirm">Confirm</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="auctionDialog" class="modal">
+    <div class="modal-card">
+      <div class="section-heading">
+        <h2 id="auctionTitle" data-i18n="silentAuction">Silent auction</h2>
+      </div>
+      <div id="auctionPropertyInfo" class="auction-property"></div>
+      <div id="auctionStatus" class="tx-note"></div>
+      <form id="auctionBidForm" class="stack compact">
+        <label><span data-i18n="bidAmount">Bid amount</span>
+          <input id="auctionBidAmount" type="number" min="1" step="1" inputmode="decimal" required />
+        </label>
+        <div class="dialog-actions">
+          <button id="declineAuctionBtn" type="button" class="button" data-i18n="declineAuction">Decline</button>
+          <button type="submit" class="button primary" data-i18n="placeBid">Place bid</button>
+        </div>
+      </form>
+      <div id="auctionResultActions" class="dialog-actions hidden">
+        <button id="closeAuctionDialog" type="button" class="button primary" data-i18n="close">Close</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="privateMessagesDialog" class="modal messages-modal">
+    <div class="modal-card">
+      <div class="section-heading">
+        <h2 data-i18n="privateMessages">Private messages</h2>
+        <button id="closePrivateMessages" type="button" class="icon-button" aria-label="Close" data-i18n-aria-label="close">×</button>
+      </div>
+      <label><span data-i18n="messagePlayer">Conversation with</span>
+        <select id="messageRecipientSelect"></select>
+      </label>
+      <div id="privateMessageList" class="private-message-list"></div>
+      <div id="replyContext" class="reply-context hidden"></div>
+      <form id="privateMessageForm" class="stack compact">
+        <label><span data-i18n="writeMessage">Message</span>
+          <textarea id="privateMessageText" maxlength="1000" rows="3" required></textarea>
+        </label>
+        <div class="dialog-actions">
+          <button id="cancelReplyBtn" type="button" class="button hidden" data-i18n="cancelReply">Cancel reply</button>
+          <button type="submit" class="button primary" data-i18n="sendMessage">Send</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <script type="module" src="app.js?v=20260926-9"></script>
 </body>
 </html>
