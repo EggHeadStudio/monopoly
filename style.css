@@ -11,6 +11,7 @@ button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
 .shell { width: min(760px, 100%); margin: 0 auto; padding: 22px 16px 60px; }
 .topbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 14px; }
+.brand-logo { display: block; width: auto; height: clamp(74px, 14vw, 112px); max-width: min(56vw, 300px); object-fit: contain; object-position: left center; border-radius: 8px; }
 .top-actions { display: flex; align-items: center; gap: 8px; }
 h1, h2, p { margin-top: 0; }
 h1 { margin-bottom: 0; font-size: clamp(1.8rem, 5vw, 2.5rem); letter-spacing: -0.04em; }
@@ -60,9 +61,17 @@ textarea { resize: vertical; min-height: 84px; }
 .player-list, .game-list { display: grid; gap: 8px; }
 .player-row, .game-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid #e0e5e0; background: #fafbf8; border-radius: 14px; padding: 12px 13px; }
 .player-row.active { border-color: #75a389; background: #f0f8f3; }
+.turn-order-controls { display: flex; align-items: center; gap: 3px; color: #68736a; font-size: .78rem; font-weight: 900; }
+.turn-order-number { min-width: 18px; text-align: center; }
+.turn-order-controls .text-button { padding: 4px 7px; font-size: 1rem; }
+.turn-order-controls .text-button:disabled { opacity: .3; cursor: default; }
+.turn-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 4px 0 12px; }
+.turn-status { color: #276749; font-size: .86rem; font-weight: 850; }
+.turn-badge { padding: 4px 7px; border-radius: 999px; background: #276749; color: #fff; font-size: .65rem; font-weight: 900; white-space: nowrap; }
+.game-player-ownership.turn-player { border-color: #276749; box-shadow: 0 0 0 2px rgba(39,103,73,.13); }
 .game-player-ownership { border: 1px solid #e0e5e0; border-radius: 14px; background: #fafbf8; overflow: hidden; }
 .game-player-ownership.active { border-color: #75a389; background: #f0f8f3; }
-.game-player-summary { display: grid; grid-template-columns: 42px minmax(72px, .8fr) minmax(54px, 1.2fr) 14px; align-items: center; gap: 10px; padding: 10px 12px; cursor: pointer; list-style: none; }
+.game-player-summary { display: grid; grid-template-columns: 42px minmax(72px, .8fr) minmax(54px, 1.2fr) auto 14px; align-items: center; gap: 10px; padding: 10px 12px; cursor: pointer; list-style: none; }
 .game-player-summary::-webkit-details-marker { display: none; }
 .game-player-summary .player-main { display: grid; gap: 2px; }
 .owned-property-marks { display: flex; align-items: center; justify-content: flex-end; gap: 3px; min-width: 0; overflow: hidden; }
@@ -142,6 +151,7 @@ textarea { resize: vertical; min-height: 84px; }
 .dice-total { min-height: 24px; color: #667268; font-size: .9rem; font-weight: 800; }
 .dice-result { min-height: 32px; color: #276749; font-weight: 900; }
 .dice-result:not(:empty) { padding: 7px 10px; border-radius: 10px; background: #eef8f1; }
+.dice-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .modal { border: 0; background: transparent; padding: 12px; width: min(520px, 100%); max-width: none; }
 .modal::backdrop { background: rgba(9,20,15,.55); backdrop-filter: blur(3px); }
 .modal-card { background: #fff; border-radius: 22px; padding: 20px; box-shadow: 0 20px 70px rgba(0,0,0,.25); display: grid; gap: 13px; }
@@ -152,7 +162,12 @@ textarea { resize: vertical; min-height: 84px; }
   .compact-field, .color-field { grid-column: 1 / -1; }
   .inline-form .button { grid-column: 1 / -1; }
   .shell { padding-top: 14px; }
+  .brand-logo { height: clamp(62px, 18vw, 88px); max-width: 52vw; }
   .quick-grid { grid-template-columns: 1fr 1fr; }
   .game-row { align-items: stretch; flex-direction: column; }
   .game-actions .button, .player-actions .button { flex: 1; }
+  .turn-controls { align-items: flex-start; flex-direction: column; }
+  .game-player-summary { grid-template-columns: 36px minmax(72px, 1fr) auto 12px; gap: 7px; padding: 9px; }
+  .game-player-summary .player-token { width: 36px; height: 36px; }
+  .player-ownership-details { padding-left: 52px; }
 }

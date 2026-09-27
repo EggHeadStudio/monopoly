@@ -5,15 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#101820" />
   <title>Monopoly Bank</title>
-  <link rel="stylesheet" href="style.css?v=20260926-14" />
+  <link rel="stylesheet" href="style.css?v=20260927-3" />
 </head>
 <body>
   <main class="shell">
     <header class="topbar">
-      <div>
-        <div class="eyebrow" data-i18n="appEyebrow">DIGITAL MONEY MANAGER</div>
-        <h1>Monopoly Bank</h1>
-      </div>
+      <img class="brand-logo" src="Monopoly_bank.png" alt="Monopoly Bank" />
       <div class="top-actions">
         <button id="languageToggle" class="language-toggle" type="button" aria-label="Switch language">EN</button>
         <button id="leaveGameBtn" class="button ghost hidden" data-i18n="leaveGame">Leave game</button>
@@ -96,6 +93,10 @@
         <div class="section-heading">
           <h2 data-i18n="players">Players</h2>
           <button id="backToLobbyBtn" class="text-button" data-i18n="switchPlayer">Switch player</button>
+        </div>
+        <div class="turn-controls">
+          <div id="turnStatus" class="turn-status" data-i18n="turnOrderNotStarted">Set player order in the lobby, then choose the first player to begin.</div>
+          <button id="endTurnBtn" class="button primary hidden" type="button" data-i18n="endTurn">End turn</button>
         </div>
         <div id="gamePlayers" class="player-list"></div>
       </div>
@@ -230,10 +231,13 @@
       <div id="dicePair" class="dice-pair" aria-live="polite"></div>
       <div id="diceTotal" class="dice-total"></div>
       <div id="diceResult" class="dice-result" aria-live="polite"></div>
-      <button id="rollDiceAgainBtn" class="button primary" type="button" data-i18n="rollDice">Roll dice</button>
+      <div class="dice-actions">
+        <button id="rollDiceAgainBtn" class="button primary" type="button" data-i18n="rollDice">Roll dice</button>
+        <button id="startingRollBtn" class="button" type="button" data-i18n="startingRoll">Starting roll</button>
+      </div>
     </div>
   </dialog>
 
-  <script type="module" src="app.js?v=20260926-15"></script>
+  <script type="module" src="app.js?v=20260927-3"></script>
 </body>
 </html>

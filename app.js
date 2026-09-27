@@ -395,6 +395,8 @@ let diceDoubleStreaks = new Map();
 let diceLastTotals = new Map();
 let diceRollInProgress = false;
 let expandedPlayerOwnership = new Set();
+let lastObservedTurn = null;
+let lastVibrationTurnKey = "";
 let privateMessageSnapshotInitialized = false;
 let privateMessageToastTimer = null;
 let knownGames = [];
@@ -468,10 +470,23 @@ const translations = {
     rollDice: "Roll dice",
     rollDiceCopy: "Roll two dice",
     diceTotal: "Total",
+    startingRoll: "Starting roll",
+    startingRollResult: "Starting roll result — it does not change the turn.",
     diceDoubleAgain: "Double! You may roll again.",
     diceJailed: "Third double in a row — go to jail!",
-    diceNotDouble: "No double. Turn ends.",
+    diceNotDouble: "No double. End your turn when you are ready.",
     diceRolling: "Rolling…",
+    diceTurnHint: "It is {name}'s turn. Switch to that player to roll; starting rolls are always available.",
+    turn: "Turn",
+    turnOrder: "Order",
+    moveUp: "Move earlier",
+    moveDown: "Move later",
+    turnOrderNotStarted: "Set player order in the lobby, then choose the first player to begin.",
+    turnOrderLocked: "Turn order is locked after the game begins.",
+    turnNotYours: "It is not your turn.",
+    turnStarted: "{name} starts the game.",
+    endTurn: "End turn",
+    turnEnded: "Turn ended.",
     ownedProperties: "Owned properties",
     noOwnedProperties: "No properties owned",
     currentRent: "Rent now",
@@ -658,10 +673,23 @@ const translations = {
     rollDice: "Heitä noppaa",
     rollDiceCopy: "Heitä kahta noppaa",
     diceTotal: "Yhteensä",
+    startingRoll: "Aloitusheitto",
+    startingRollResult: "Aloitusheitto — ei vaikuta vuoroon.",
     diceDoubleAgain: "Tuplat! Saat heittää uudelleen.",
     diceJailed: "Kolmannet tuplat peräkkäin — vankilaan!",
-    diceNotDouble: "Ei tuplia. Vuoro päättyy.",
+    diceNotDouble: "Ei tuplia. Päätä vuoro, kun olet valmis.",
     diceRolling: "Heitetään…",
+    diceTurnHint: "Nyt on pelaajan {name} vuoro. Vaihda kyseiseen pelaajaan heittääksesi; aloitusheitto on aina käytettävissä.",
+    turn: "Vuoro",
+    turnOrder: "Järjestys",
+    moveUp: "Siirrä aikaisemmaksi",
+    moveDown: "Siirrä myöhemmäksi",
+    turnOrderNotStarted: "Aseta pelaajien järjestys aulassa ja aloita valitsemalla ensimmäinen pelaaja.",
+    turnOrderLocked: "Vuorojärjestystä ei voi enää muuttaa pelin alettua.",
+    turnNotYours: "Nyt ei ole sinun vuorosi.",
+    turnStarted: "{name} aloittaa pelin.",
+    endTurn: "Päätä vuoro",
+    turnEnded: "Vuoro päätetty.",
     ownedProperties: "Omistetut kohteet",
     noOwnedProperties: "Ei omistettuja kohteita",
     currentRent: "Vuokra nyt",
@@ -804,10 +832,11 @@ const els = {
   lobbyPlayers: $("lobbyPlayers"), addPlayerForm: $("addPlayerForm"), newPlayerName: $("newPlayerName"),
   startBalance: $("startBalance"), playerIconSelect: $("playerIconSelect"), playerColorChoices: $("playerColorChoices"),
   currentPlayerName: $("currentPlayerName"), currentBalance: $("currentBalance"),
+  turnStatus: $("turnStatus"), endTurnBtn: $("endTurnBtn"),
   payPlayerBtn: $("payPlayerBtn"), payBankBtn: $("payBankBtn"), receiveBankBtn: $("receiveBankBtn"),
   payFreeParkingBtn: $("payFreeParkingBtn"), claimFreeParkingBtn: $("claimFreeParkingBtn"), freeParkingPot: $("freeParkingPot"),
   diceRollBtn: $("diceRollBtn"), diceDialog: $("diceDialog"), closeDiceDialog: $("closeDiceDialog"),
-  dicePlayerName: $("dicePlayerName"), dicePair: $("dicePair"), diceTotal: $("diceTotal"), diceResult: $("diceResult"), rollDiceAgainBtn: $("rollDiceAgainBtn"),
+  dicePlayerName: $("dicePlayerName"), dicePair: $("dicePair"), diceTotal: $("diceTotal"), diceResult: $("diceResult"), rollDiceAgainBtn: $("rollDiceAgainBtn"), startingRollBtn: $("startingRollBtn"),
   privateMessagesBtn: $("privateMessagesBtn"), privateMessageBadge: $("privateMessageBadge"), messageToast: $("messageToast"),
   privateMessagesDialog: $("privateMessagesDialog"), closePrivateMessages: $("closePrivateMessages"),
   messageRecipientSelect: $("messageRecipientSelect"), privateMessageList: $("privateMessageList"), privateMessageForm: $("privateMessageForm"),
@@ -952,6 +981,57 @@ function leaveGame() {
   setStatus("", false, "ready");
 }
 
+async function endTurn(expectedPlayerId = currentPlayerId) {
+  if (!gameId || !expectedPlayerId) return;
+  const gameRef = doc(db, "games", gameId);
+  try {
+    await runTransaction(db, async tx => {
+      const gameSnap = await tx.get(gameRef);
+      if (!gameSnap.exists()) throw new Error(t("gameNotFound"));
+      const data = gameSnap.data();
+      if (data.currentTurnPlayerId !== expectedPlayerId) throw new Error(t("turnNotYours"));
+      const ordered = orderedPlayers();
+      if (!ordered.length) return;
+      const currentIndex = ordered.findIndex(player => player.id === expectedPlayerId);
+      const nextPlayer = ordered[(currentIndex + 1 + ordered.length) % ordered.length];
+      tx.update(gameRef, {
+        currentTurnPlayerId: nextPlayer.id,
+        turnNumber: Number(data.turnNumber || 1) + 1,
+        turnStartedAt: serverTimestamp()
+      });
+    });
+    diceDoubleStreaks.set(diceStreakKey(expectedPlayerId), 0);
+    if (currentPlayerId === expectedPlayerId) setStatus("", false, "turnEnded");
+  } catch (err) { handleError(err); }
+}
+
+function renderTurnStatus() {
+  if (!els.turnStatus || !els.endTurnBtn) return;
+  const activePlayer = players.find(player => player.id === gameData.currentTurnPlayerId);
+  if (!activePlayer) {
+    els.turnStatus.textContent = t("turnOrderNotStarted");
+    els.endTurnBtn.classList.add("hidden");
+    if (els.diceDialog.open && !diceRollInProgress) els.rollDiceAgainBtn.disabled = true;
+    return;
+  }
+  els.turnStatus.textContent = `${t("turn")}: ${activePlayer.name} · ${t("turnOrder")} ${Number(gameData.turnNumber || 1)}`;
+  els.endTurnBtn.classList.toggle("hidden", currentPlayerId !== activePlayer.id);
+  if (els.diceDialog.open && !diceRollInProgress) els.rollDiceAgainBtn.disabled = currentPlayerId !== activePlayer.id;
+  vibrateForCurrentTurn();
+}
+
+function vibrateForCurrentTurn() {
+  if (!currentPlayerId || gameData.currentTurnPlayerId !== currentPlayerId || typeof navigator.vibrate !== "function") return;
+  const turnKey = `${gameId}:${gameData.turnNumber || 1}:${gameData.currentTurnPlayerId}:${currentPlayerId}`;
+  if (turnKey === lastVibrationTurnKey) return;
+  lastVibrationTurnKey = turnKey;
+  try { navigator.vibrate([140, 70, 180]); } catch { /* unsupported or blocked by device */ }
+}
+
+function diceStreakKey(playerId = currentPlayerId) {
+  return `${gameId || ""}:${playerId || ""}`;
+}
+
 function stopSubscriptions() {
   if (auctionFinalizeTimer) {
     clearTimeout(auctionFinalizeTimer);
@@ -1041,8 +1121,14 @@ function subscribeToGame() {
   if (!gameId) return;
 
   unsubscribeGame = onSnapshot(doc(db, "games", gameId), snap => {
-    gameData = snap.exists() ? snap.data() : {};
+    const nextGameData = snap.exists() ? snap.data() : {};
+    if (lastObservedTurn && lastObservedTurn.gameId === gameId && lastObservedTurn.playerId && nextGameData.currentTurnPlayerId !== lastObservedTurn.playerId) {
+      diceDoubleStreaks.set(diceStreakKey(lastObservedTurn.playerId), 0);
+    }
+    lastObservedTurn = { gameId, playerId: nextGameData.currentTurnPlayerId || null };
+    gameData = nextGameData;
     renderFreeParking();
+    renderPlayers();
     renderAuction();
   }, handleError);
 
@@ -1052,6 +1138,7 @@ function subscribeToGame() {
     renderPlayers();
     renderCurrentPlayer();
     renderAuction();
+    if (currentPlayerId) initializeTurnIfNeeded();
   }, handleError);
 
   const txQuery = query(collection(db, "games", gameId, "transactions"), orderBy("createdAt", "desc"), limit(25));
@@ -1131,39 +1218,87 @@ async function addPlayer(event) {
   if (!color) return setStatus("", true, "allColorsUsed");
   if (players.some(player => player.color === color)) return setStatus("", true, "colorAlreadyUsed");
   try {
-    await addDoc(collection(db, "games", gameId, "players"), {
+    const ordered = orderedPlayers();
+    const playerRef = doc(collection(db, "games", gameId, "players"));
+    const batch = writeBatch(db);
+    ordered.forEach((player, index) => {
+      if (!Number.isInteger(player.turnOrder) || player.turnOrder !== index) {
+        batch.update(doc(db, "games", gameId, "players", player.id), { turnOrder: index });
+      }
+    });
+    batch.set(playerRef, {
       name,
       balance,
       icon,
       color,
+      turnOrder: ordered.length,
       createdAt: serverTimestamp()
     });
+    await batch.commit();
     els.newPlayerName.value = "";
     renderPlayerOptions();
   } catch (err) { handleError(err); }
 }
 
-function selectPlayer(playerId) {
+function orderedPlayers(source = players) {
+  return [...source].sort((a, b) => {
+    const aOrder = Number.isInteger(a.turnOrder) ? a.turnOrder : Number.MAX_SAFE_INTEGER;
+    const bOrder = Number.isInteger(b.turnOrder) ? b.turnOrder : Number.MAX_SAFE_INTEGER;
+    return aOrder - bOrder || (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0);
+  });
+}
+
+async function selectPlayer(playerId) {
   currentPlayerId = playerId;
   localStorage.setItem("monopolyPlayerId", playerId);
   showOnly(els.gameView);
   renderCurrentPlayer();
   renderPlayers();
   renderTransactions();
+  await initializeTurnIfNeeded();
+  renderTurnStatus();
 }
 
-function diceStreakKey() {
-  return `${gameId || ""}:${currentPlayerId || ""}`;
+async function initializeTurnIfNeeded() {
+  if (!gameId || !players.length) return;
+  const gameRef = doc(db, "games", gameId);
+  try {
+    await runTransaction(db, async tx => {
+      const gameSnap = await tx.get(gameRef);
+      if (!gameSnap.exists() || gameSnap.data().currentTurnPlayerId) return;
+      const firstPlayer = orderedPlayers()[0];
+      if (!firstPlayer) return;
+      tx.update(gameRef, { currentTurnPlayerId: firstPlayer.id, turnNumber: 1, turnStartedAt: serverTimestamp() });
+    });
+  } catch (err) { handleError(err); }
+}
+
+async function movePlayerOrder(playerId, direction) {
+  const ordered = orderedPlayers();
+  const index = ordered.findIndex(player => player.id === playerId);
+  const target = index + direction;
+  if (index < 0 || target < 0 || target >= ordered.length) return;
+  [ordered[index], ordered[target]] = [ordered[target], ordered[index]];
+  try {
+    const batch = writeBatch(db);
+    ordered.forEach((player, order) => batch.update(doc(db, "games", gameId, "players", player.id), { turnOrder: order }));
+    await batch.commit();
+  } catch (err) { handleError(err); }
 }
 
 function openDiceDialog() {
   const player = players.find(item => item.id === currentPlayerId);
   if (!player) return;
+  const activeTurnPlayer = players.find(item => item.id === gameData.currentTurnPlayerId);
   els.dicePlayerName.textContent = player.name;
   els.dicePair.innerHTML = "";
   els.diceTotal.textContent = "";
-  els.diceResult.textContent = "";
-  els.rollDiceAgainBtn.disabled = false;
+  const canRollForTurn = gameData.currentTurnPlayerId === currentPlayerId;
+  els.diceResult.textContent = canRollForTurn
+    ? ""
+    : t("diceTurnHint").replace("{name}", activeTurnPlayer?.name || t("player"));
+  els.rollDiceAgainBtn.disabled = !canRollForTurn;
+  els.startingRollBtn.disabled = false;
   if (!els.diceDialog.open) els.diceDialog.showModal();
 }
 
@@ -1184,19 +1319,31 @@ function delay(milliseconds) {
   return new Promise(resolve => setTimeout(resolve, milliseconds));
 }
 
-async function rollDice() {
-  if (diceRollInProgress || !currentPlayerId) return;
+async function rollDice(isStartingRoll = false) {
+  const rollerId = currentPlayerId;
+  if (diceRollInProgress || !rollerId) return;
+  if (!isStartingRoll && gameData.currentTurnPlayerId !== rollerId) return setStatus("", true, "turnNotYours");
   diceRollInProgress = true;
   els.rollDiceAgainBtn.disabled = true;
+  els.startingRollBtn.disabled = true;
   els.diceResult.textContent = t("diceRolling");
   els.diceTotal.textContent = "";
   els.dicePair.innerHTML = `${dieMarkup(1, true)}${dieMarkup(6, true)}`;
   await delay(720);
   const first = crypto.getRandomValues(new Uint32Array(1))[0] % 6 + 1;
   const second = crypto.getRandomValues(new Uint32Array(1))[0] % 6 + 1;
-  diceLastTotals.set(diceStreakKey(), first + second);
+  if (isStartingRoll) {
+    els.dicePair.innerHTML = `${dieMarkup(first)}${dieMarkup(second)}`;
+    els.diceTotal.textContent = `${t("diceTotal")}: ${first + second}`;
+    els.diceResult.textContent = t("startingRollResult");
+    els.rollDiceAgainBtn.disabled = gameData.currentTurnPlayerId !== currentPlayerId;
+    els.startingRollBtn.disabled = false;
+    diceRollInProgress = false;
+    return;
+  }
+  diceLastTotals.set(diceStreakKey(rollerId), first + second);
   const isDouble = first === second;
-  const streakKey = diceStreakKey();
+  const streakKey = diceStreakKey(rollerId);
   const streak = isDouble ? (diceDoubleStreaks.get(streakKey) || 0) + 1 : 0;
   if (isDouble && streak >= 3) diceDoubleStreaks.set(streakKey, 0);
   else diceDoubleStreaks.set(streakKey, streak);
@@ -1205,31 +1352,45 @@ async function rollDice() {
   if (isDouble && streak >= 3) els.diceResult.textContent = t("diceJailed");
   else if (isDouble) els.diceResult.textContent = t("diceDoubleAgain");
   else els.diceResult.textContent = t("diceNotDouble");
-  els.rollDiceAgainBtn.disabled = false;
+  els.rollDiceAgainBtn.disabled = gameData.currentTurnPlayerId !== currentPlayerId;
+  els.startingRollBtn.disabled = false;
   diceRollInProgress = false;
+  if (isDouble && streak >= 3) setTimeout(() => endTurn(rollerId), 700);
 }
 
 function renderPlayers() {
   renderPlayerOptions();
   renderPrivateMessageBadge();
-  const row = p => `
+  renderTurnStatus();
+  const order = orderedPlayers();
+  const row = p => {
+    const orderIndex = order.findIndex(player => player.id === p.id);
+    const turnOrderControls = `<div class="turn-order-controls">
+      <span>${orderIndex + 1}</span>
+      <button class="text-button" type="button" data-order-player="${p.id}" data-order-direction="-1" aria-label="${t("moveUp")}" title="${t("moveUp")}" ${orderIndex === 0 ? "disabled" : ""}>↑</button>
+      <button class="text-button" type="button" data-order-player="${p.id}" data-order-direction="1" aria-label="${t("moveDown")}" title="${t("moveDown")}" ${orderIndex === order.length - 1 ? "disabled" : ""}>↓</button>
+    </div>`;
+    return `
     <div class="player-row ${p.id === currentPlayerId ? "active" : ""}">
       ${playerToken(p)}
       <div class="player-main">
         <div class="player-name">${escapeHtml(p.name)}</div>
         <div class="player-balance">${money(p.balance)}</div>
       </div>
+      ${turnOrderControls}
       <div class="player-actions">
         <button class="button" data-player="${p.id}">${p.id === currentPlayerId ? t("selected") : t("choose")}</button>
         <button class="button danger" data-delete-player="${p.id}">${t("deletePlayer")}</button>
       </div>
     </div>`;
+  };
 
-  els.lobbyPlayers.innerHTML = players.length ? players.map(row).join("") : `<div class="empty">${t("noPlayersYet")}</div>`;
-  els.gamePlayers.innerHTML = players.length ? players.map(p => renderGamePlayer(p)).join("") : `<div class="empty">${t("noPlayers")}</div>`;
+  els.lobbyPlayers.innerHTML = players.length ? order.map(row).join("") : `<div class="empty">${t("noPlayersYet")}</div>`;
+  els.gamePlayers.innerHTML = players.length ? order.map(p => renderGamePlayer(p)).join("") : `<div class="empty">${t("noPlayers")}</div>`;
 
   els.lobbyPlayers.querySelectorAll("[data-player]").forEach(btn => btn.addEventListener("click", () => selectPlayer(btn.dataset.player)));
   els.lobbyPlayers.querySelectorAll("[data-delete-player]").forEach(btn => btn.addEventListener("click", () => deletePlayer(btn.dataset.deletePlayer)));
+  els.lobbyPlayers.querySelectorAll("[data-order-player]").forEach(btn => btn.addEventListener("click", () => movePlayerOrder(btn.dataset.orderPlayer, Number(btn.dataset.orderDirection))));
   els.gamePlayers.querySelectorAll("[data-player-ownership]").forEach(details => details.addEventListener("toggle", () => {
     if (details.open) expandedPlayerOwnership.add(details.dataset.playerOwnership);
     else expandedPlayerOwnership.delete(details.dataset.playerOwnership);
@@ -1237,9 +1398,12 @@ function renderPlayers() {
 }
 
 function propertiesOwnedBy(playerId) {
-  return properties
-    .filter(property => property.ownerId === playerId)
-    .sort((a, b) => propertyDisplayName(a).localeCompare(propertyDisplayName(b), language));
+  const presetOrder = new Map(PROPERTY_PRESETS.map((preset, index) => [preset.id, index]));
+  return properties.filter(property => property.ownerId === playerId).sort((a, b) => {
+    const aIndex = presetOrder.get(a.presetId || a.id) ?? Number.MAX_SAFE_INTEGER;
+    const bIndex = presetOrder.get(b.presetId || b.id) ?? Number.MAX_SAFE_INTEGER;
+    return aIndex - bIndex || propertyDisplayName(a).localeCompare(propertyDisplayName(b), language);
+  });
 }
 
 function propertyOwnershipMarkup(property) {
@@ -1284,11 +1448,13 @@ function renderGamePlayer(player) {
       return `<span class="owned-property-mark" style="--property-color: ${color}" title="${escapeHtml(propertyDisplayName(property))}"></span>`;
     }).join("") + (owned.length > 12 ? `<span class="owned-property-overflow">+${owned.length - 12}</span>` : "")
     : `<span class="no-owned-mark">—</span>`;
-  return `<details class="game-player-ownership ${player.id === currentPlayerId ? "active" : ""}" data-player-ownership="${player.id}" ${isExpanded ? "open" : ""}>
+  const isTurn = gameData.currentTurnPlayerId === player.id;
+  return `<details class="game-player-ownership ${player.id === currentPlayerId ? "active" : ""} ${isTurn ? "turn-player" : ""}" data-player-ownership="${player.id}" ${isExpanded ? "open" : ""}>
     <summary class="game-player-summary">
       ${playerToken(player)}
       <span class="player-main"><span class="player-name">${escapeHtml(player.name)}</span><span class="player-balance">${money(player.balance)}</span></span>
       <span class="owned-property-marks" aria-label="${escapeHtml(t("ownedProperties"))}">${compactMarks}</span>
+      ${isTurn ? `<span class="turn-badge">${t("turn")}</span>` : ""}
       <span class="ownership-chevron" aria-hidden="true"></span>
     </summary>
     <div class="player-ownership-details">
@@ -1305,9 +1471,22 @@ async function deletePlayer(playerId) {
   try {
     const batch = writeBatch(db);
     batch.delete(doc(db, "games", gameId, "players", playerId));
+    const priorOrder = orderedPlayers();
+    const remainingPlayers = priorOrder.filter(item => item.id !== playerId);
+    remainingPlayers.forEach((item, index) => {
+      if (item.turnOrder !== index) batch.update(doc(db, "games", gameId, "players", item.id), { turnOrder: index });
+    });
     properties.filter(property => property.ownerId === playerId).forEach(property => {
       batch.delete(doc(db, "games", gameId, "properties", property.id));
     });
+    if (gameData.currentTurnPlayerId === playerId) {
+      const deletedIndex = priorOrder.findIndex(item => item.id === playerId);
+      const nextTurnPlayer = remainingPlayers.length ? remainingPlayers[Math.max(0, Math.min(deletedIndex, remainingPlayers.length - 1))] : null;
+      batch.update(doc(db, "games", gameId), {
+        currentTurnPlayerId: nextTurnPlayer?.id || null,
+        turnNumber: nextTurnPlayer ? Number(gameData.turnNumber || 1) + 1 : 0
+      });
+    }
     await batch.commit();
     if (playerId === currentPlayerId) {
       currentPlayerId = null;
@@ -2252,7 +2431,8 @@ els.receiveBankBtn.addEventListener("click", () => openMoneyDialog("bank-receive
 els.payFreeParkingBtn.addEventListener("click", () => openMoneyDialog("free-parking-pay"));
 els.claimFreeParkingBtn.addEventListener("click", claimFreeParking);
 els.diceRollBtn.addEventListener("click", openDiceDialog);
-els.rollDiceAgainBtn.addEventListener("click", rollDice);
+els.rollDiceAgainBtn.addEventListener("click", () => rollDice(false));
+els.startingRollBtn.addEventListener("click", () => rollDice(true));
 els.closeDiceDialog.addEventListener("click", () => els.diceDialog.close());
 els.privateMessagesBtn.addEventListener("click", openPrivateMessages);
 els.closePrivateMessages.addEventListener("click", () => els.privateMessagesDialog.close());
@@ -2264,6 +2444,7 @@ els.closeMoneyDialog.addEventListener("click", closeMoneyDialog);
 els.cancelMoneyDialog.addEventListener("click", closeMoneyDialog);
 els.moneyDialog.addEventListener("cancel", () => { els.moneyForm.reset(); moneyMode = null; });
 els.undoBtn.addEventListener("click", undoLastTransaction);
+els.endTurnBtn.addEventListener("click", () => endTurn());
 els.propertyBtn.addEventListener("click", () => { renderPropertySelect(); renderProperties(); els.propertyDialog.showModal(); });
 els.closePropertyDialog.addEventListener("click", () => els.propertyDialog.close());
 els.addPropertyForm.addEventListener("submit", addProperty);
