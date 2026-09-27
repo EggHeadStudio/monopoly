@@ -411,6 +411,7 @@ let propertySaleId = null;
 let openPropertyDetails = new Set();
 let propertyChoicesOpen = false;
 let auctionFinalizeTimer = null;
+let turnAlertTimer = null;
 let dismissedAuctionId = localStorage.getItem("monopolyDismissedAuctionId") || "";
 let language = localStorage.getItem("monopolyLanguage") || "en";
 
@@ -1021,11 +1022,18 @@ function renderTurnStatus() {
 }
 
 function vibrateForCurrentTurn() {
-  if (!currentPlayerId || gameData.currentTurnPlayerId !== currentPlayerId || typeof navigator.vibrate !== "function") return;
+  if (!currentPlayerId || gameData.currentTurnPlayerId !== currentPlayerId) return;
   const turnKey = `${gameId}:${gameData.turnNumber || 1}:${gameData.currentTurnPlayerId}:${currentPlayerId}`;
   if (turnKey === lastVibrationTurnKey) return;
   lastVibrationTurnKey = turnKey;
-  try { navigator.vibrate([140, 70, 180]); } catch { /* unsupported or blocked by device */ }
+  els.turnStatus.classList.remove("turn-alert");
+  void els.turnStatus.offsetWidth;
+  els.turnStatus.classList.add("turn-alert");
+  if (turnAlertTimer) clearTimeout(turnAlertTimer);
+  turnAlertTimer = setTimeout(() => els.turnStatus.classList.remove("turn-alert"), 2100);
+  if (typeof navigator.vibrate === "function") {
+    try { navigator.vibrate([500, 150, 500, 150, 500, 200]); } catch { /* unsupported or blocked by device */ }
+  }
 }
 
 function diceStreakKey(playerId = currentPlayerId) {

@@ -67,6 +67,8 @@ textarea { resize: vertical; min-height: 84px; }
 .turn-order-controls .text-button:disabled { opacity: .3; cursor: default; }
 .turn-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 4px 0 12px; }
 .turn-status { color: #276749; font-size: .86rem; font-weight: 850; }
+.turn-status.turn-alert { animation: turn-alert 2.1s ease-out; }
+@keyframes turn-alert { 0%, 35% { color: #173225; background: #ccebd4; box-shadow: 0 0 0 8px rgba(70,150,90,.2); } 100% { color: #276749; background: transparent; box-shadow: 0 0 0 0 rgba(70,150,90,0); } }
 .turn-badge { padding: 4px 7px; border-radius: 999px; background: #276749; color: #fff; font-size: .65rem; font-weight: 900; white-space: nowrap; }
 .game-player-ownership.turn-player { border-color: #276749; box-shadow: 0 0 0 2px rgba(39,103,73,.13); }
 .game-player-ownership { border: 1px solid #e0e5e0; border-radius: 14px; background: #fafbf8; overflow: hidden; }
