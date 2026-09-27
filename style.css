@@ -24,10 +24,11 @@ h2 { margin-bottom: 8px; letter-spacing: -0.025em; }
 .hero-card, .section-heading, .topbar, .dialog-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .status { min-height: 20px; color: #667268; font-size: .9rem; }
 .status.error { color: #9d2b2b; }
+.warning-note { border-left: 3px solid #d5a62f; padding: 8px 10px; background: #fff9e7; border-radius: 0 8px 8px 0; }
 .stack { display: grid; gap: 12px; }
 .stack.compact { gap: 10px; }
 label { display: grid; gap: 6px; font-size: .85rem; font-weight: 700; color: #465348; }
-input, select, textarea { width: 100%; border: 1px solid #cdd5ce; background: #fff; border-radius: 12px; padding: 12px 13px; color: #12202d; outline: none; }
+input, select, textarea { width: 100%; border: 1px solid #cdd5ce; background: #fff; border-radius: 12px; padding: 12px 13px; color: #12202d; outline: none; font-size: 16px; }
 input:focus, select:focus, textarea:focus { border-color: #2f7250; box-shadow: 0 0 0 3px rgba(47,114,80,.12); }
 textarea { resize: vertical; min-height: 84px; }
 .button { border: 1px solid #c9d1ca; background: #fff; color: #183126; border-radius: 12px; padding: 11px 14px; font-weight: 800; }

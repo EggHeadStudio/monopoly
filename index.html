@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#101820" />
   <title>Monopoly Bank</title>
-  <link rel="stylesheet" href="style.css?v=20260927-4" />
+  <link rel="stylesheet" href="style.css?v=20260927-8" />
 </head>
 <body>
   <main class="shell">
@@ -28,9 +28,9 @@
         <div class="divider"><span data-i18n="or">or</span></div>
         <label>
           <span data-i18n="gameCode">Game code</span>
-          <input id="joinCodeInput" maxlength="8" autocomplete="off" placeholder="e.g. K7Q9F2MX" />
+          <input id="joinCodeInput" maxlength="32" autocomplete="off" placeholder="e.g. K7Q9F2MX" aria-describedby="gameCodeHelp" />
         </label>
-        <button id="joinGameBtn" class="button" data-i18n="joinGame">Join game</button>
+        <p id="gameCodeHelp" class="muted compact-help" data-i18n="gameCodeLookupHelp">Enter the 8-character code to find a game. It will appear below.</p>
       </div>
     </section>
 
@@ -238,6 +238,54 @@
     </div>
   </dialog>
 
-  <script type="module" src="app.js?v=20260927-4"></script>
+  <dialog id="gameSetupDialog" class="modal">
+    <form id="gameSetupForm" class="modal-card">
+      <div class="section-heading">
+        <h2 data-i18n="gameVisibility">Game visibility</h2>
+        <button id="closeGameSetup" type="button" class="icon-button" aria-label="Close" data-i18n-aria-label="close">×</button>
+      </div>
+      <label><span data-i18n="gameVisibility">Game visibility</span>
+        <select id="gameVisibilitySelect">
+          <option value="public" data-i18n="publicGame">Public game</option>
+          <option value="password" data-i18n="passwordGame">Password-protected</option>
+          <option value="secret" data-i18n="secretGame">Secret (code only)</option>
+        </select>
+      </label>
+      <div class="tx-note" data-i18n="visibilityHelp">Public games appear in the games list. Secret games are hidden from the list.</div>
+      <div class="dialog-actions">
+        <button id="cancelGameSetup" type="button" class="button" data-i18n="cancel">Cancel</button>
+        <button type="submit" class="button primary" data-i18n="createNewGame">Create new game</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="createdGameDialog" class="modal">
+    <div class="modal-card">
+      <h2 data-i18n="gameCreatedTitle">Game created</h2>
+      <p class="muted" data-i18n="shareGameCode">Share this game code with players.</p>
+      <label><span data-i18n="gameCode">Game code</span><input id="createdGameCode" readonly /></label>
+      <div id="createdGamePasswordWrap" class="stack compact hidden">
+        <label><span data-i18n="oneTimePassword">One-time game password — save it now</span><input id="createdGamePassword" readonly /></label>
+        <p class="muted" data-i18n="passwordShownOnce">This password will not be shown again.</p>
+      </div>
+      <button id="closeCreatedGame" type="button" class="button primary" data-i18n="continue">Continue</button>
+    </div>
+  </dialog>
+
+  <dialog id="gamePasswordDialog" class="modal">
+    <form id="gamePasswordForm" class="modal-card">
+      <div class="section-heading">
+        <h2 data-i18n="passwordRequired">Password required</h2>
+        <button id="closeGamePassword" type="button" class="icon-button" aria-label="Close" data-i18n-aria-label="close">×</button>
+      </div>
+      <label><span data-i18n="gamePassword">Game password</span><input id="gamePasswordInput" type="password" autocomplete="current-password" required /></label>
+      <div class="dialog-actions">
+        <button id="cancelGamePassword" type="button" class="button" data-i18n="cancel">Cancel</button>
+        <button type="submit" class="button primary" data-i18n="joinGame">Join game</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="app.js?v=20260927-10"></script>
 </body>
 </html>

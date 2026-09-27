@@ -400,6 +400,14 @@ let lastVibrationTurnKey = "";
 let privateMessageSnapshotInitialized = false;
 let privateMessageToastTimer = null;
 let knownGames = [];
+let discoveredGames = [];
+let discoveredGameCodes = new Set(loadDiscoveredGameCodes());
+let gameLookupTimer = null;
+let gameLookupInFlight = new Set();
+let pendingPasswordGame = null;
+let passwordPromptResolver = null;
+let createdGameCode = "";
+let createdGamePassword = "";
 let unsubscribeGames = null;
 let unsubscribeGame = null;
 let unsubscribePlayers = null;
@@ -425,8 +433,24 @@ const translations = {
     startGame: "Start a game",
     startGameCopy: "Create a new shared game or join one using its code.",
     createNewGame: "Create new game",
+    gameVisibility: "Game visibility",
+    publicGame: "Public game",
+    passwordGame: "Password-protected",
+    secretGame: "Secret (code only)",
+    visibilityHelp: "Public games appear in the games list. Secret games are hidden from the list.",
+    gameCreatedTitle: "Game created",
+    shareGameCode: "Share this game code with players.",
+    oneTimePassword: "One-time game password — save it now",
+    passwordShownOnce: "This password will not be shown again.",
+    continue: "Continue",
+    passwordRequired: "Password required",
+    gamePassword: "Game password",
+    wrongGamePassword: "Incorrect password.",
+    protected: "Password",
+    passwordRequiredForCode: "Enter the one-time password shared by the game creator.",
     or: "or",
     gameCode: "Game code",
+    gameCodeLookupHelp: "Enter the 8-character code to find a game. It will appear below.",
     gameCodeUpper: "GAME CODE",
     joinGame: "Join game",
     savedGames: "Games",
@@ -575,6 +599,8 @@ const translations = {
     createGameSuccess: "Game created. Add players and share the code.",
     createGameError: "Could not generate a unique game code. Try again.",
     enterGameCode: "Enter a game code.",
+    checkingGameCode: "Checking game code…",
+    gameCodeFound: "Game found. Use the game list below to open or delete it.",
     gameNotFound: "Game not found. Check the code.",
     gameFound: "Game found. Choose your player.",
     addOtherPlayer: "Add at least one other player first.",
@@ -628,8 +654,24 @@ const translations = {
     startGame: "Aloita peli",
     startGameCopy: "Luo uusi jaettu peli tai liity pelikoodilla.",
     createNewGame: "Luo uusi peli",
+    gameVisibility: "Pelin näkyvyys",
+    publicGame: "Julkinen peli",
+    passwordGame: "Salasanasuojattu",
+    secretGame: "Salainen (vain koodilla)",
+    visibilityHelp: "Julkiset pelit näkyvät pelilistassa. Salaiset pelit piilotetaan listalta.",
+    gameCreatedTitle: "Peli luotu",
+    shareGameCode: "Jaa pelikoodi muille pelaajille.",
+    oneTimePassword: "Kertakäyttöinen pelin salasana — tallenna se nyt",
+    passwordShownOnce: "Salasanaa ei näytetä uudelleen.",
+    continue: "Jatka",
+    passwordRequired: "Salasana vaaditaan",
+    gamePassword: "Pelin salasana",
+    wrongGamePassword: "Väärä salasana.",
+    protected: "Salasana",
+    passwordRequiredForCode: "Syötä pelin luojalta saamasi kertakäyttöinen salasana.",
     or: "tai",
     gameCode: "Pelikoodi",
+    gameCodeLookupHelp: "Syötä 8-merkkinen koodi etsiäksesi pelin. Löydetty peli ilmestyy alle.",
     gameCodeUpper: "PELIKOODI",
     joinGame: "Liity peliin",
     savedGames: "Pelit",
@@ -778,6 +820,8 @@ const translations = {
     createGameSuccess: "Peli luotu. Lisää pelaajat ja jaa koodi.",
     createGameError: "Yksilöllistä pelikoodia ei voitu luoda. Yritä uudelleen.",
     enterGameCode: "Syötä pelikoodi.",
+    checkingGameCode: "Tarkistetaan pelikoodia…",
+    gameCodeFound: "Peli löytyi. Avaa tai poista se alla olevasta pelilistasta.",
     gameNotFound: "Peliä ei löytynyt. Tarkista koodi.",
     gameFound: "Peli löytyi. Valitse pelaajasi.",
     addOtherPlayer: "Lisää ensin vähintään yksi toinen pelaaja.",
@@ -828,7 +872,10 @@ const $ = (id) => document.getElementById(id);
 const els = {
   statusBar: $("statusBar"), homeView: $("homeView"), lobbyView: $("lobbyView"), gameView: $("gameView"),
   leaveGameBtn: $("leaveGameBtn"), createGameBtn: $("createGameBtn"), joinCodeInput: $("joinCodeInput"),
-  joinGameBtn: $("joinGameBtn"), gameCodeText: $("gameCodeText"), copyCodeBtn: $("copyCodeBtn"),
+  gameSetupDialog: $("gameSetupDialog"), gameSetupForm: $("gameSetupForm"), closeGameSetup: $("closeGameSetup"), cancelGameSetup: $("cancelGameSetup"), gameVisibilitySelect: $("gameVisibilitySelect"),
+  createdGameDialog: $("createdGameDialog"), createdGameCode: $("createdGameCode"), createdGamePasswordWrap: $("createdGamePasswordWrap"), createdGamePassword: $("createdGamePassword"), closeCreatedGame: $("closeCreatedGame"),
+  gamePasswordDialog: $("gamePasswordDialog"), gamePasswordForm: $("gamePasswordForm"), gamePasswordInput: $("gamePasswordInput"), closeGamePassword: $("closeGamePassword"), cancelGamePassword: $("cancelGamePassword"),
+  gameCodeText: $("gameCodeText"), copyCodeBtn: $("copyCodeBtn"),
   savedGamesCard: $("savedGamesCard"), savedGamesList: $("savedGamesList"),
   lobbyPlayers: $("lobbyPlayers"), addPlayerForm: $("addPlayerForm"), newPlayerName: $("newPlayerName"),
   startBalance: $("startBalance"), playerIconSelect: $("playerIconSelect"), playerColorChoices: $("playerColorChoices"),
@@ -859,6 +906,15 @@ const els = {
 
 function t(key) {
   return translations[language]?.[key] || translations.en[key] || key;
+}
+
+function loadDiscoveredGameCodes() {
+  try {
+    const stored = JSON.parse(localStorage.getItem("monopolyDiscoveredGameCodes") || "[]");
+    return Array.isArray(stored) ? stored.filter(code => typeof code === "string") : [];
+  } catch {
+    return [];
+  }
 }
 
 function iconLabel(icon) {
@@ -928,27 +984,156 @@ async function createUniqueGameCode() {
   throw new Error(t("createGameError"));
 }
 
-async function createGame() {
+function closeDialogAndWait(dialog) {
+  if (!dialog.open) return Promise.resolve();
+  return new Promise(resolve => {
+    dialog.addEventListener("close", resolve, { once: true });
+    dialog.close();
+  });
+}
+
+async function createGame(event) {
+  event?.preventDefault();
   if (!user) return;
   setStatus("", false, "createGameStatus");
   try {
     const code = await createUniqueGameCode();
+    const visibility = els.gameVisibilitySelect.value;
+    const password = visibility === "password" ? generateGamePassword() : "";
+    const passwordSalt = visibility === "password" ? randomHex(16) : "";
+    const passwordHash = visibility === "password" ? await hashGamePassword(password, passwordSalt) : "";
     await setDoc(doc(db, "games", code), {
       status: "active",
+      visibility,
+      passwordSalt,
+      passwordHash,
       createdAt: serverTimestamp(),
       createdBy: user.uid
     });
-    enterGame(code, null);
+    await closeDialogAndWait(els.gameSetupDialog);
+    createdGameCode = code;
+    createdGamePassword = password;
+    els.createdGameCode.value = code;
+    els.createdGamePassword.value = password;
+    els.createdGamePasswordWrap.classList.toggle("hidden", visibility !== "password");
+    els.createdGameDialog.showModal();
     setStatus("", false, "createGameSuccess");
   } catch (err) { handleError(err); }
 }
 
-async function joinGame() {
+function scheduleGameCodeLookup() {
+  if (gameLookupTimer) clearTimeout(gameLookupTimer);
+  renderKnownGames();
   const code = els.joinCodeInput.value.trim().toUpperCase();
-  if (!code) return setStatus("", true, "enterGameCode");
+  if (code.length !== 8) {
+    if (["checkingGameCode", "gameCodeFound"].includes(els.statusBar.dataset.statusKey)) setStatus("", false, "ready");
+    return;
+  }
+  setStatus("", false, "checkingGameCode");
+  gameLookupTimer = setTimeout(() => findGameByCode(code), 350);
+}
+
+async function findGameByCode(code = els.joinCodeInput.value.trim().toUpperCase()) {
+  if (gameLookupTimer) {
+    clearTimeout(gameLookupTimer);
+    gameLookupTimer = null;
+  }
+  if (code.length !== 8) return setStatus("", true, "enterGameCode");
+  if (gameLookupInFlight.has(code)) return;
+  gameLookupInFlight.add(code);
   try {
     const snap = await getDoc(doc(db, "games", code));
     if (!snap.exists()) return setStatus("", true, "gameNotFound");
+    rememberDiscoveredGame({ id: snap.id, ...snap.data() });
+    setStatus("", false, "gameCodeFound");
+  } catch (err) { handleError(err); }
+  finally { gameLookupInFlight.delete(code); }
+}
+
+function persistDiscoveredGameCodes() {
+  localStorage.setItem("monopolyDiscoveredGameCodes", JSON.stringify([...discoveredGameCodes]));
+}
+
+function rememberDiscoveredGame(game) {
+  discoveredGameCodes.add(game.id);
+  persistDiscoveredGameCodes();
+  const existingIndex = discoveredGames.findIndex(item => item.id === game.id);
+  if (existingIndex >= 0) discoveredGames[existingIndex] = game;
+  else discoveredGames.unshift(game);
+  renderKnownGames();
+}
+
+async function loadDiscoveredGames() {
+  const codes = [...discoveredGameCodes];
+  if (!codes.length) return;
+  const snapshots = await Promise.all(codes.map(code => getDoc(doc(db, "games", code)).catch(() => null)));
+  const activeCodes = new Set();
+  discoveredGames = snapshots.filter(snap => snap?.exists()).map(snap => {
+    activeCodes.add(snap.id);
+    return { id: snap.id, ...snap.data() };
+  });
+  if (activeCodes.size !== discoveredGameCodes.size) {
+    discoveredGameCodes = activeCodes;
+    persistDiscoveredGameCodes();
+  }
+  renderKnownGames();
+}
+
+function randomHex(byteCount) {
+  return Array.from(crypto.getRandomValues(new Uint8Array(byteCount)), byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function generateGamePassword() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  return Array.from(crypto.getRandomValues(new Uint8Array(12)), byte => alphabet[byte % alphabet.length]).join("");
+}
+
+async function hashGamePassword(password, salt) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${salt}:${password}`));
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function requestGamePassword(game) {
+  pendingPasswordGame = game;
+  els.gamePasswordInput.value = "";
+  els.gamePasswordDialog.showModal();
+  els.gamePasswordInput.focus();
+  return new Promise(resolve => { passwordPromptResolver = resolve; });
+}
+
+function finishPasswordPrompt(accepted) {
+  if (els.gamePasswordDialog.open) els.gamePasswordDialog.close();
+  pendingPasswordGame = null;
+  const resolve = passwordPromptResolver;
+  passwordPromptResolver = null;
+  resolve?.(accepted);
+}
+
+async function submitGamePassword(event) {
+  event.preventDefault();
+  if (!pendingPasswordGame) return finishPasswordPrompt(false);
+  try {
+    const candidateHash = await hashGamePassword(els.gamePasswordInput.value, pendingPasswordGame.passwordSalt || "");
+    if (candidateHash !== pendingPasswordGame.passwordHash) {
+      els.gamePasswordInput.setCustomValidity(t("wrongGamePassword"));
+      els.gamePasswordInput.reportValidity();
+      els.gamePasswordInput.setCustomValidity("");
+      els.gamePasswordInput.select();
+      return;
+    }
+    finishPasswordPrompt(true);
+  } catch (err) { handleError(err); }
+}
+
+async function openGameByCode(code) {
+  try {
+    const snap = await getDoc(doc(db, "games", code));
+    if (!snap.exists()) return setStatus("", true, "gameNotFound");
+    const game = { id: snap.id, ...snap.data() };
+    if (game.visibility === "password") {
+      const accepted = await requestGamePassword(game);
+      if (!accepted) return;
+    }
     enterGame(code, null);
     setStatus("", false, "gameFound");
   } catch (err) { handleError(err); }
@@ -1051,25 +1236,35 @@ function stopSubscriptions() {
 
 function subscribeToKnownGames() {
   if (unsubscribeGames) unsubscribeGames();
+  loadDiscoveredGames().catch(handleError);
   const gamesQuery = query(collection(db, "games"), orderBy("createdAt", "desc"), limit(30));
   unsubscribeGames = onSnapshot(gamesQuery, snap => {
     knownGames = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     renderKnownGames();
+    loadDiscoveredGames().catch(handleError);
   }, handleError);
 }
 
 function renderKnownGames() {
   if (!els.savedGamesList) return;
-  if (!knownGames.length) {
+  const codeInField = els.joinCodeInput?.value.trim().toUpperCase() || "";
+  const gamesById = new Map(knownGames.map(game => [game.id, game]));
+  discoveredGames.forEach(game => gamesById.set(game.id, game));
+  const listedGames = [...gamesById.values()].filter(game =>
+    (game.visibility || "public") !== "secret" ||
+    (discoveredGameCodes.has(game.id) && codeInField === game.id)
+  );
+  if (!listedGames.length) {
     els.savedGamesList.innerHTML = `<div class="empty">${t("noGamesYet")}</div>`;
     return;
   }
-  els.savedGamesList.innerHTML = knownGames.map(game => {
+  els.savedGamesList.innerHTML = listedGames.map(game => {
     const createdAt = formatGameDate(game.createdAt);
+    const accessLabel = game.visibility === "password" ? ` · ${t("protected")}` : "";
     return `<div class="game-row">
       <div class="player-main">
         <div class="player-name">${escapeHtml(game.id)}</div>
-        <div class="player-balance">${t("created")} ${escapeHtml(createdAt)}</div>
+        <div class="player-balance">${t("created")} ${escapeHtml(createdAt)}${accessLabel}</div>
       </div>
       <div class="game-actions">
         <button class="button" data-open-game="${game.id}">${t("openGame")}</button>
@@ -1087,8 +1282,7 @@ function formatGameDate(timestamp) {
 }
 
 function openKnownGame(code) {
-  enterGame(code, null);
-  setStatus("", false, "gameFound");
+  openGameByCode(code);
 }
 
 async function deleteKnownGame(code) {
@@ -1120,6 +1314,9 @@ async function deleteKnownGame(code) {
       localStorage.removeItem("monopolyPlayerId");
       showOnly(els.homeView);
     }
+    discoveredGameCodes.delete(code);
+    discoveredGames = discoveredGames.filter(game => game.id !== code);
+    persistDiscoveredGameCodes();
     setStatus("", false, "gameDeleted");
   } catch (err) { handleError(err); }
 }
@@ -2425,9 +2622,34 @@ function handleError(err) {
 
 applyLanguage();
 
-els.createGameBtn.addEventListener("click", createGame);
-els.joinGameBtn.addEventListener("click", joinGame);
-els.joinCodeInput.addEventListener("keydown", e => { if (e.key === "Enter") joinGame(); });
+els.createGameBtn.addEventListener("click", () => {
+  els.gameVisibilitySelect.value = "public";
+  els.gameSetupDialog.showModal();
+  requestAnimationFrame(() => {
+    if (els.gameSetupDialog.open) els.gameVisibilitySelect.focus({ preventScroll: true });
+  });
+});
+els.gameSetupForm.addEventListener("submit", createGame);
+els.closeGameSetup.addEventListener("click", () => els.gameSetupDialog.close());
+els.cancelGameSetup.addEventListener("click", () => els.gameSetupDialog.close());
+els.gameSetupDialog.addEventListener("cancel", () => {});
+els.closeCreatedGame.addEventListener("click", () => {
+  els.createdGamePassword.value = "";
+  createdGamePassword = "";
+  els.createdGameDialog.close();
+  requestAnimationFrame(() => els.createGameBtn.focus({ preventScroll: true }));
+});
+els.gamePasswordForm.addEventListener("submit", submitGamePassword);
+els.closeGamePassword.addEventListener("click", () => finishPasswordPrompt(false));
+els.cancelGamePassword.addEventListener("click", () => finishPasswordPrompt(false));
+els.gamePasswordDialog.addEventListener("cancel", event => { event.preventDefault(); finishPasswordPrompt(false); });
+els.joinCodeInput.addEventListener("input", scheduleGameCodeLookup);
+els.joinCodeInput.addEventListener("keydown", event => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    findGameByCode();
+  }
+});
 els.leaveGameBtn.addEventListener("click", leaveGame);
 els.languageToggle.addEventListener("click", () => setLanguage(language === "en" ? "fi" : "en"));
 els.copyCodeBtn.addEventListener("click", async () => { await navigator.clipboard.writeText(gameId); setStatus("", false, "gameCodeCopied"); });

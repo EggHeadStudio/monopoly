@@ -16,6 +16,7 @@ A static HTML/CSS/JavaScript Monopoly money manager that runs on GitHub Pages an
 - Mortgage / unmortgage properties
 - Private player-to-player messages with replies
 - Delete a game and its players, transactions, properties, and private messages
+- Public, password-gated, and secret (code-only) game visibility options
 - No Node, Flask, npm or build step required
 
 ## 1. Create the Firebase project
@@ -58,6 +59,7 @@ These MVP rules require a Firebase-authenticated session. The app uses anonymous
 
 Important: this app stores only board-game data. The rule set is intentionally simple for private/family use and is not appropriate for sensitive information.
 Private-message conversations are separated in the app by sender and recipient, but use the same authenticated game-invitation trust model as the other game data. Do not use this for confidential or sensitive messages.
+Game passwords are randomly generated and shown to the creator once. With the current broad authenticated Firestore read rules, the password prompt is an application-level gate, not a security boundary against a technically capable authenticated user. Strong password protection and truly inaccessible secret games require server-side verification or membership-based Firestore rules.
 
 ## 5. Register the web app
 
