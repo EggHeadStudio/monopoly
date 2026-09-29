@@ -1852,15 +1852,326 @@ function playerToken(player) {
 
 function playerIconSvg(iconId) {
   const icons = {
-    car: `<svg viewBox="0 0 64 64"><path d="M13 38h38l-5-14H21z"/><path d="M9 38h46v12H9z"/><circle cx="20" cy="51" r="6"/><circle cx="44" cy="51" r="6"/><path d="M24 28h16"/></svg>`,
-    hat: `<svg viewBox="0 0 64 64"><path d="M20 37h24l-3-19H23z"/><path d="M11 41c8 6 34 6 42 0v9H11z"/><path d="M22 34h20"/></svg>`,
-    ship: `<svg viewBox="0 0 64 64"><path d="M18 37h36l-7 13H14z"/><path d="M30 13v24"/><path d="M31 15l18 11-18 8z"/><path d="M29 20l-13 9 13 5z"/></svg>`,
-    shoe: `<svg viewBox="0 0 64 64"><path d="M13 42c12 1 20-5 24-15 3 8 8 12 16 14v8H13z"/><path d="M21 36h17"/><path d="M26 32h11"/></svg>`,
-    dog: `<svg viewBox="0 0 64 64"><path d="M17 37h25l7 7v7h-7v-5H23v5h-7z"/><path d="M42 30h9l3 5-6 4-6-3z"/><path d="M18 36l-7-7"/><circle cx="49" cy="34" r="2"/></svg>`,
-    cat: `<svg viewBox="0 0 64 64"><path d="M19 27l8-9 5 9 5-9 8 9v18c0 8-26 8-26 0z"/><circle cx="27" cy="37" r="2"/><circle cx="37" cy="37" r="2"/><path d="M28 46h8"/></svg>`,
-    iron: `<svg viewBox="0 0 64 64"><path d="M13 45c6-13 17-22 36-19 4 4 6 10 6 19z"/><path d="M25 27c1-8 11-8 14 0"/><path d="M14 45h41v7H14z"/></svg>`,
-    thimble: `<svg viewBox="0 0 64 64"><path d="M22 52h20l5-31c-5-6-25-6-30 0z"/><path d="M20 24c6 3 18 3 24 0"/><path d="M25 31h2M32 31h2M39 31h2M24 39h2M31 39h2M38 39h2"/></svg>`
+
+    // CLASSIC CAR
+    car: `
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <g fill="currentColor">
+          <!-- body -->
+          <path d="M8 38
+                   C8 34 11 31 15 30
+                   L20 22
+                   C21.5 19.5 24 18 27 18
+                   H39
+                   C42 18 44.5 19.5 46 22
+                   L51 30
+                   C55 31 57 34 57 38
+                   V46
+                   H52
+                   C51 51 48 54 43 54
+                   C38 54 35 51 34 46
+                   H29
+                   C28 51 25 54 20 54
+                   C15 54 12 51 11 46
+                   H8
+                   Z"/>
+          <!-- windows -->
+          <path d="M23 24
+                   C24 22.5 25.5 22 27.5 22
+                   H31
+                   V30
+                   H19
+                   Z"
+                opacity=".35"/>
+          <path d="M34 22
+                   H38.5
+                   C40.5 22 42 23 43 24.5
+                   L46 30
+                   H34
+                   Z"
+                opacity=".35"/>
+        </g>
+
+        <g fill="#111" opacity=".35">
+          <circle cx="20" cy="46" r="5"/>
+          <circle cx="44" cy="46" r="5"/>
+        </g>
+
+        <g fill="currentColor">
+          <circle cx="20" cy="46" r="2.5"/>
+          <circle cx="44" cy="46" r="2.5"/>
+        </g>
+      </svg>
+    `,
+
+    // TOP HAT
+    hat: `
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <g fill="currentColor">
+          <path d="M21 13
+                   C21 10 24 8 32 8
+                   C40 8 43 10 43 13
+                   L46 39
+                   C42 42 22 42 18 39
+                   Z"/>
+          <ellipse cx="32" cy="39" rx="14" ry="4"/>
+          <path d="M8 41
+                   C13 38 20 37 32 37
+                   C44 37 51 38 56 41
+                   C55 48 47 52 32 52
+                   C17 52 9 48 8 41Z"/>
+        </g>
+
+        <path d="M19 33
+                 C26 35 38 35 45 33
+                 L46 39
+                 C40 42 24 42 18 39Z"
+              fill="#111"
+              opacity=".22"/>
+      </svg>
+    `,
+
+    // BATTLESHIP
+    ship: `
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <g fill="currentColor">
+          <!-- hull -->
+          <path d="M7 40
+                   H57
+                   L50 51
+                   C45 54 19 54 14 51
+                   Z"/>
+
+          <!-- deck -->
+          <rect x="15" y="34" width="34" height="6" rx="1"/>
+
+          <!-- center tower -->
+          <rect x="27" y="22" width="10" height="12" rx="1"/>
+          <rect x="29" y="16" width="6" height="7" rx="1"/>
+
+          <!-- chimney -->
+          <rect x="39" y="25" width="5" height="9"/>
+
+          <!-- front gun -->
+          <rect x="44" y="29" width="10" height="3" rx="1"/>
+          <circle cx="44" cy="30.5" r="3"/>
+
+          <!-- rear gun -->
+          <rect x="10" y="29" width="10" height="3" rx="1"/>
+          <circle cx="20" cy="30.5" r="3"/>
+
+          <!-- mast -->
+          <rect x="31" y="8" width="2" height="11"/>
+          <path d="M33 10 L42 13 L33 16 Z"/>
+        </g>
+
+        <path d="M12 47 H52"
+              fill="none"
+              stroke="#111"
+              stroke-width="2"
+              opacity=".25"/>
+      </svg>
+    `,
+
+    // CLASSIC BOOT / SHOE
+    shoe: `
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <g fill="currentColor">
+          <path d="M15 13
+                   H36
+                   C35 21 34 27 36 32
+                   C39 37 45 39 53 40
+                   C57 41 59 44 58 48
+                   C57 52 54 54 49 54
+                   H13
+                   C9 54 7 52 7 49
+                   V44
+                   C15 42 19 39 20 34
+                   C21 29 18 21 15 13Z"/>
+
+          <path d="M10 48
+                   H56
+                   C56 52 53 55 48 55
+                   H14
+                   C10 55 8 53 8 50Z"/>
+        </g>
+
+        <g fill="#111" opacity=".25">
+          <rect x="20" y="22" width="14" height="2" rx="1"/>
+          <rect x="20" y="27" width="14" height="2" rx="1"/>
+          <rect x="19" y="32" width="15" height="2" rx="1"/>
+        </g>
+      </svg>
+    `,
+
+    // SCOTTIE DOG
+    dog: `
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <g fill="currentColor">
+          <!-- body -->
+          <path d="M18 31
+                   C23 26 34 25 41 29
+                   L46 25
+                   L51 27
+                   L55 34
+                   L51 39
+                   L45 38
+                   L42 43
+                   V52
+                   H36
+                   L35 44
+                   H24
+                   L23 52
+                   H17
+                   L16 42
+                   C12 39 10 34 11 29
+                   L16 34
+                   Z"/>
+
+          <!-- head -->
+          <path d="M42 22
+                   C45 18 51 18 54 22
+                   L59 20
+                   L57 28
+                   C60 31 59 36 56 39
+                   C52 42 45 40 42 36
+                   Z"/>
+
+          <!-- ear -->
+          <path d="M47 20
+                   L44 12
+                   L51 16
+                   L55 12
+                   L54 22Z"/>
+        </g>
+
+        <circle cx="53" cy="28" r="1.4" fill="#111"/>
+      </svg>
+    `,
+
+    // CAT
+    cat: `
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <g fill="currentColor">
+          <!-- tail -->
+          <path d="M43 42
+                   C53 41 57 35 55 29
+                   C54 25 50 24 48 27
+                   C53 29 52 35 47 36
+                   C45 36 43 36 41 35Z"/>
+
+          <!-- body -->
+          <path d="M21 30
+                   C17 34 16 42 18 49
+                   H25
+                   L27 42
+                   H37
+                   L39 49
+                   H46
+                   C47 39 44 31 39 27
+                   Z"/>
+
+          <!-- head -->
+          <path d="M20 16
+                   L26 20
+                   C30 18 34 18 38 20
+                   L44 16
+                   L43 29
+                   C40 34 24 34 21 29
+                   Z"/>
+
+          <!-- feet -->
+          <ellipse cx="22" cy="50" rx="6" ry="3"/>
+          <ellipse cx="42" cy="50" rx="6" ry="3"/>
+        </g>
+
+        <g fill="#111" opacity=".45">
+          <circle cx="27" cy="25" r="1.3"/>
+          <circle cx="37" cy="25" r="1.3"/>
+          <path d="M30 28 Q32 30 34 28 Q32 33 30 28Z"/>
+        </g>
+      </svg>
+    `,
+
+    // CLASSIC IRON
+    iron: `
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <g fill="currentColor">
+          <!-- iron body -->
+          <path d="M9 46
+                   C15 35 25 27 42 25
+                   C49 24 54 29 57 37
+                   L58 46
+                   Z"/>
+
+          <!-- handle -->
+          <path d="M24 27
+                   C25 18 30 14 38 14
+                   C46 14 50 18 51 26
+                   L44 27
+                   C43 22 41 20 37 20
+                   C33 20 31 22 31 27
+                   Z"/>
+
+          <!-- sole -->
+          <path d="M7 46 H59
+                   C59 51 56 54 51 54
+                   H13
+                   C9 54 7 51 7 46Z"/>
+        </g>
+
+        <path d="M17 43
+                 C25 34 35 30 48 30"
+              fill="none"
+              stroke="#111"
+              stroke-width="2"
+              opacity=".20"/>
+      </svg>
+    `,
+
+    // THIMBLE
+    thimble: `
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <g fill="currentColor">
+          <!-- main body -->
+          <path d="M18 22
+                   C18 14 24 10 32 10
+                   C40 10 46 14 46 22
+                   L42 49
+                   H22
+                   Z"/>
+
+          <!-- rim -->
+          <path d="M19 46
+                   H45
+                   L47 52
+                   C42 55 22 55 17 52
+                   Z"/>
+        </g>
+
+        <!-- thimble dimples -->
+        <g fill="#111" opacity=".24">
+          <circle cx="25" cy="20" r="1.5"/>
+          <circle cx="32" cy="18" r="1.5"/>
+          <circle cx="39" cy="20" r="1.5"/>
+
+          <circle cx="23" cy="27" r="1.5"/>
+          <circle cx="30" cy="26" r="1.5"/>
+          <circle cx="37" cy="27" r="1.5"/>
+          <circle cx="43" cy="27" r="1.5"/>
+
+          <circle cx="24" cy="34" r="1.5"/>
+          <circle cx="32" cy="33" r="1.5"/>
+          <circle cx="40" cy="34" r="1.5"/>
+
+          <circle cx="25" cy="41" r="1.5"/>
+          <circle cx="32" cy="40" r="1.5"/>
+          <circle cx="39" cy="41" r="1.5"/>
+        </g>
+      </svg>
+    `
   };
+
   return icons[iconId] || icons.car;
 }
 
