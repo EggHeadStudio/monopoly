@@ -6,7 +6,7 @@ import {
   writeBatch
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
-import { createBoardController, BOARD_SPACES, playerBoardPosition } from "./board.js?v=20261003-4";
+import { createBoardController, BOARD_SPACES, playerBoardPosition, cardMovementRoute, CHANCE_CARDS, COMMUNITY_CHEST_CARDS } from "./board.js?v=20261003-8";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -397,6 +397,9 @@ let diceLastTotals = new Map();
 let diceRollInProgress = false;
 let activeDiceRollId = "";
 let boardSessionGeneration = 0;
+let jailCardUseInProgress = false;
+let cardSnapshotInitialized = false;
+let seenCardDraws = new Set();
 let expandedPlayerOwnership = new Set();
 let lastObservedTurn = null;
 let lastVibrationTurnKey = "";
@@ -482,6 +485,9 @@ const translations = {
     payBank: "Pay bank",
     payBankCopy: "Make a payment to the bank",
     receive: "Receive",
+    claim: "Claim",
+    pay: "Pay",
+    gameActions: "Game actions",
     receiveCopy: "Salary, GO, bank…",
     payFreeParking: "Pay to center",
     payFreeParkingCopy: "Add money to the pot",
@@ -515,6 +521,20 @@ const translations = {
     diceRolling: "Rolling…",
     boardStaleRevision: "Another device already moved this player. This roll was not applied again.",
     boardMovementCancelled: "Board movement cancelled.",
+    jailFreeCard: "Get Out of Jail Free",
+    jailCardHelp: "Use one card from Jail / Just Visiting. It returns to its original deck; your token stays here and you can roll normally.",
+    jailCardReceived: "This card is now yours. Find it beside the Board button; it cannot be drawn again until you use it.",
+    jailCardHeld: "Cards held: {count}",
+    jailCardUse: "Use card",
+    jailCardUsed: "Card used and returned to its deck. You can roll normally.",
+    jailCardUnavailable: "You no longer hold this card.",
+    jailCardNotInJail: "Use this card from the Jail / Just Visiting space.",
+    chanceDeck: "Chance",
+    communityDeck: "Community Chest",
+    acknowledge: "Acknowledge",
+    cardDrawnBy: "Card drawn by {name}",
+    cardManualMoney: "Card movement is automatic. Pay charges to the center / Free Parking pot and collect bank money manually. Rent and player payments remain manual.",
+    jailCardShared: "The player who drew this card keeps it until use; it is removed from the deck while held.",
     diceTurnHint: "It is {name}'s turn. Switch to that player to roll; starting rolls are always available.",
     turn: "Turn",
     turnOrder: "Order",
@@ -725,6 +745,9 @@ const translations = {
     payBank: "Maksa pankille",
     payBankCopy: "Suorita maksu pankille",
     receive: "Vastaanota",
+    claim: "Lunasta",
+    pay: "Maksa",
+    gameActions: "Pelitoiminnot",
     receiveCopy: "Palkka, lähtöruutu, pankki…",
     payFreeParking: "Maksa keskelle",
     payFreeParkingCopy: "Lisää rahaa pottiin",
@@ -758,6 +781,20 @@ const translations = {
     diceRolling: "Heitetään…",
     boardStaleRevision: "Toinen laite on jo siirtänyt tätä pelaajaa. Heittoa ei käytetty uudelleen.",
     boardMovementCancelled: "Pelilaudalla liikkuminen peruttiin.",
+    jailFreeCard: "Vapaudu vankilasta ilmaiseksi",
+    jailCardHelp: "Käytä yksi kortti Vankila / Vierailulla -ruudussa. Kortti palautuu alkuperäiseen pakkaan; nappulasi jää tähän ja voit heittää normaalisti.",
+    jailCardReceived: "Tämä kortti on nyt sinun. Löydät sen Pelilauta-painikkeen vierestä. Sitä ei voi nostaa uudelleen ennen käyttöä.",
+    jailCardHeld: "Kortteja hallussa: {count}",
+    jailCardUse: "Käytä kortti",
+    jailCardUsed: "Kortti käytetty ja palautettu pakkaan. Voit heittää normaalisti.",
+    jailCardUnavailable: "Tämä kortti ei ole enää hallussasi.",
+    jailCardNotInJail: "Käytä kortti Vankila / Vierailulla -ruudussa.",
+    chanceDeck: "Sattuma",
+    communityDeck: "Yhteismaa",
+    acknowledge: "Ymmärretty",
+    cardDrawnBy: "Kortin nosti {name}",
+    cardManualMoney: "Kortin liikkuminen tapahtuu automaattisesti. Maksa maksut keskelle / vapaan pysäköinnin pottiin ja vastaanota rahat pankilta käsin. Vuokrat ja pelaajien väliset maksut hoidetaan käsin.",
+    jailCardShared: "Kortin nostanut pelaaja säilyttää sen käyttöön asti. Kortti on poissa pakasta hallussapidon ajan.",
     diceTurnHint: "Nyt on pelaajan {name} vuoro. Vaihda kyseiseen pelaajaan heittääksesi; aloitusheitto on aina käytettävissä.",
     turn: "Vuoro",
     turnOrder: "Järjestys",
@@ -994,6 +1031,7 @@ function applyLanguage() {
   if (els.privateMessagesDialog.open) renderPrivateMessages();
   if (els.messageToast.dataset.senderName !== undefined) renderPrivateMessageToast();
   boardController.sync();
+  renderHeldJailCards();
 }
 
 function setLanguage(nextLanguage) {
@@ -1006,6 +1044,7 @@ function setStatus(message, isError = false, key = "") {
   els.statusBar.dataset.statusKey = key;
   els.statusBar.textContent = key ? t(key) : (message || "");
   els.statusBar.classList.toggle("error", isError);
+  boardController.sync();
 }
 
 function money(value) {
@@ -1015,9 +1054,11 @@ function money(value) {
 function renderFreeParking() {
   if (els.freeParkingPot) els.freeParkingPot.textContent = money(gameData.freeParkingPot || 0);
   boardController.sync();
+  renderHeldJailCards();
 }
 
 function showOnly(view) {
+  if (view !== els.gameView && $("heldJailCardsDialog").open) $("heldJailCardsDialog").close();
   if (view !== els.gameView) boardController.reset();
   for (const element of [els.homeView, els.lobbyView, els.gameView]) element.classList.add("hidden");
   view.classList.remove("hidden");
@@ -1224,7 +1265,7 @@ function leaveGame() {
 }
 
 async function endTurn(expectedPlayerId = currentPlayerId) {
-  if (diceRollInProgress) return;
+  if (diceRollInProgress || jailCardUseInProgress) return;
   if (!gameId || !expectedPlayerId) return;
   const gameRef = doc(db, "games", gameId);
   try {
@@ -1284,6 +1325,8 @@ function diceStreakKey(playerId = currentPlayerId) {
 }
 
 function stopSubscriptions() {
+  cardSnapshotInitialized = false;
+  seenCardDraws = new Set();
   boardController.reset();
   if (auctionFinalizeTimer) {
     clearTimeout(auctionFinalizeTimer);
@@ -1384,13 +1427,14 @@ function subscribeToGame() {
   stopSubscriptions();
   if (!gameId) return;
 
-  unsubscribeGame = onSnapshot(doc(db, "games", gameId), snap => {
+  unsubscribeGame = onSnapshot(doc(db, "games", gameId), { includeMetadataChanges: true }, snap => {
     const nextGameData = snap.exists() ? snap.data() : {};
     if (lastObservedTurn && lastObservedTurn.gameId === gameId && lastObservedTurn.playerId && nextGameData.currentTurnPlayerId !== lastObservedTurn.playerId) {
       diceDoubleStreaks.set(diceStreakKey(lastObservedTurn.playerId), 0);
     }
     lastObservedTurn = { gameId, playerId: nextGameData.currentTurnPlayerId || null };
     gameData = nextGameData;
+    observeCardDraws(gameData.cardDrawEvents || [], Boolean(snap.metadata?.hasPendingWrites));
     renderFreeParking();
     renderPlayers();
     renderAuction();
@@ -1604,7 +1648,7 @@ function delay(milliseconds) {
 
 async function rollDice(isStartingRoll = false) {
   const rollerId = currentPlayerId;
-  if (diceRollInProgress || !rollerId) return;
+  if (diceRollInProgress || jailCardUseInProgress || !rollerId) return;
   if (!isStartingRoll && gameData.currentTurnPlayerId !== rollerId) return setStatus("", true, "turnNotYours");
   // Capture the revision BEFORE the dice animation. Concurrent tabs use the same
   // expected revision; only one final transaction can commit that movement.
@@ -1704,42 +1748,192 @@ async function movePlayerOnBoard(movement, steps) {
     boardController.relocatePlayerOnBoard(movement.playerId, finalPosition);
   }
   const landing = BOARD_SPACES[finalPosition];
-  const card = landing.type === "chance" ? boardController.drawChanceCard()
-    : landing.type === "community" ? boardController.drawCommunityChestCard() : null;
+  // Select against the transaction's shared holders, not a possibly stale snapshot.
+  // The seed is stable across transaction retries; a concurrently claimed card is excluded.
+  const cardSeed = crypto.getRandomValues(new Uint32Array(1))[0];
   const gameRef = doc(db, "games", movement.gameId);
   const playerRef = doc(db, "games", movement.gameId, "players", movement.playerId);
-  const applied = await runTransaction(db, async tx => {
+  const result = await runTransaction(db, async tx => {
     const gameSnap = await tx.get(gameRef);
     const playerSnap = await tx.get(playerRef);
     if (!isCurrentBoardMovement(movement)) throw new Error(t("turnNotYours"));
     if (!gameSnap.exists()) throw new Error(t("gameNotFound"));
     if (!playerSnap.exists()) throw new Error(t("playerGone"));
     const data = playerSnap.data(), game = gameSnap.data();
-    if (data.boardLastRollId === movement.rollId) return false;
+    if (data.boardLastRollId === movement.rollId) return { applied: false };
     if (game.currentTurnPlayerId !== movement.playerId || Number(game.turnNumber || 1) !== movement.turn) throw new Error(t("turnNotYours"));
     if (Number(data.boardMoveVersion || 0) !== movement.version || playerBoardPosition(data) !== movement.from) {
       const error = new Error(t("boardStaleRevision"));
       error.translationKey = "boardStaleRevision";
       throw error;
     }
+    const holders = landing.type === "chance" || landing.type === "community"
+      ? await transactionJailCardHolders(tx, game, movement.gameId) : storedJailCardHolders(game);
+    const cards = [], routes = [];
+    let destination = finalPosition;
+    for (let draw = 0; draw < 4; draw++) {
+      const space = BOARD_SPACES[destination];
+      const card = space.type === "chance" ? boardController.drawChanceCard(holders, (cardSeed + draw) >>> 0)
+        : space.type === "community" ? boardController.drawCommunityChestCard(holders, (cardSeed + draw) >>> 0) : null;
+      if (!card) break;
+      cards.push(card);
+      if (card.keepUntilUsed) holders[card.id] = movement.playerId;
+      const route = cardMovementRoute(card, destination);
+      if (!route) break;
+      routes.push(route);
+      destination = route.destination;
+      if (BOARD_SPACES[destination].type === "goToJail") {
+        routes.push({ from: destination, destination: 10, direct: true, steps: 0 });
+        destination = 10;
+      }
+      // Back-three from Chance can land on Community Chest and draw again.
+      if (!["chance", "community"].includes(BOARD_SPACES[destination].type)) break;
+    }
+    const card = cards[cards.length - 1] || null;
+    let cardVersion = Number(game.jailCardVersion || 0);
+    const inventoryChanged = cards.some(card => card.keepUntilUsed);
+    const gamePatch = {};
+    if (inventoryChanged) {
+      cardVersion++;
+      Object.assign(gamePatch, { heldJailCards: holders, jailCardVersion: cardVersion });
+    }
+    const event = cards.length ? {
+      id: movement.rollId, playerId: movement.playerId, playerName: data.name || "",
+      cards: cards.map(card => ({ id: card.id, type: card.type }))
+    } : null;
+    if (event) gamePatch.cardDrawEvents = [...(game.cardDrawEvents || []), event].slice(-20);
+    if (Object.keys(gamePatch).length) tx.update(gameRef, gamePatch);
     tx.update(playerRef, {
-      position: finalPosition, boardMoveVersion: movement.version + 1,
+      position: destination, boardMoveVersion: movement.version + 1,
       boardLastRollId: movement.rollId, boardLastDiceTotal: steps,
       boardLastCard: card ? { id: card.id, type: card.type, rollId: movement.rollId } : null
     });
-    return true;
+    return { applied: true, card, holders, cardVersion, destination, routes, event, inventoryChanged };
   });
+  if (!isCurrentBoardMovement(movement)) return false;
+  if (result.applied) {
+    // Card effects were atomically committed. Animate only the committed routes,
+    // never rerun draws/effects on a snapshot or an acknowledgement.
+    try {
+      for (const route of result.routes) {
+        if (!isCurrentBoardMovement(movement)) return false;
+        if (route.direct) boardController.relocatePlayerOnBoard(movement.playerId, route.destination);
+        else await boardController.animatePlayerMovement(movement.playerId, route.from, Math.abs(route.steps), route.steps < 0 ? -1 : 1);
+      }
+    } catch (err) { if (isCurrentBoardMovement(movement)) throw err; else return false; }
+    finalPosition = result.destination;
+  }
   if (!isCurrentBoardMovement(movement)) return false;
   // The snapshot may arrive before or after the transaction promise resolves.
   // Never roll back a newer position if another tab has already made a later move.
   players = players.map(player => player.id === movement.playerId && Number(player.boardMoveVersion || 0) <= movement.version
     ? { ...player, position: finalPosition, boardMoveVersion: movement.version + 1 } : player);
   boardController.finishMovement(movement.playerId);
-  if (applied && card && currentPlayerId === movement.playerId) boardController.showCard(card);
-  return applied;
+  if (result.inventoryChanged) applyJailCardState(result.holders, result.cardVersion);
+  renderHeldJailCards();
+  if (result.applied && result.event) displayCardDraw(result.event);
+  return result.applied;
+}
+
+// A bounded event history shares draws using the existing game subscription.
+// Initial subscription establishes a baseline instead of replaying old cards.
+function observeCardDraws(events, pendingWrites = false) {
+  if (!cardSnapshotInitialized) {
+    events.forEach(event => { if (event.id !== activeDiceRollId) seenCardDraws.add(event.id); });
+    cardSnapshotInitialized = true;
+    return;
+  }
+  if (pendingWrites) return;
+  events.forEach(event => { if (event.id !== activeDiceRollId) displayCardDraw(event); });
+}
+
+function displayCardDraw(event) {
+  if (!event?.id || seenCardDraws.has(event.id)) return;
+  seenCardDraws.add(event.id);
+  if (seenCardDraws.size > 200) seenCardDraws = new Set([...seenCardDraws].slice(-100));
+  for (const entry of event.cards || []) {
+    const deck = entry.type === "chance" ? CHANCE_CARDS : entry.type === "community" ? COMMUNITY_CHEST_CARDS : [];
+    const card = deck.find(card => card.id === entry.id);
+    if (card) boardController.showCard({ ...card, type: entry.type, playerName: event.playerName });
+  }
+}
+
+// Shared jail-card inventory lives on the game document (no new subscription).
+function jailReleaseCards() {
+  return [...CHANCE_CARDS.map(card => ({ ...card, type: "chance" })),
+    ...COMMUNITY_CHEST_CARDS.map(card => ({ ...card, type: "community" }))].filter(card => card.keepUntilUsed);
+}
+
+function storedJailCardHolders(game = gameData) {
+  const ids = new Set(jailReleaseCards().map(card => card.id));
+  return Object.fromEntries(Object.entries(game.heldJailCards || {})
+    .filter(([id, owner]) => ids.has(id) && typeof owner === "string" && owner));
+}
+
+async function transactionJailCardHolders(tx, game, code) {
+  const holders = storedJailCardHolders(game);
+  // Player and game listeners can arrive independently. Only transactional reads
+  // may release an orphaned card; never trust local player membership here.
+  for (const owner of new Set(Object.values(holders))) {
+    const ownerSnap = await tx.get(doc(db, "games", code, "players", owner));
+    if (!ownerSnap.exists()) {
+      for (const id of Object.keys(holders)) if (holders[id] === owner) delete holders[id];
+    }
+  }
+  return holders;
+}
+
+function applyJailCardState(holders, version) {
+  if (Number(gameData.jailCardVersion || 0) <= version) {
+    gameData = { ...gameData, heldJailCards: holders, jailCardVersion: version };
+  }
+}
+
+function renderHeldJailCards() {
+  const holders = storedJailCardHolders();
+  const cards = jailReleaseCards().filter(card => holders[card.id] === currentPlayerId);
+  const button = $("heldJailCardBtn");
+  button.classList.toggle("hidden", !cards.length);
+  button.classList.toggle("is-stacked", cards.length > 1);
+  button.disabled = diceRollInProgress || jailCardUseInProgress;
+  $("heldJailCardCount").textContent = String(cards.length);
+  $("heldJailCardHint").textContent = t("jailCardHeld").replace("{count}", cards.length);
+  const inJail = playerBoardPosition(players.find(player => player.id === currentPlayerId)) === 10;
+  $("heldJailCardsList").innerHTML = cards.map(card => `<div class="held-jail-card-row"><strong>${escapeHtml(t(card.type === "chance" ? "chanceDeck" : "communityDeck"))}</strong><button type="button" class="button primary" data-use-jail-card="${escapeHtml(card.id)}" ${!inJail || diceRollInProgress || jailCardUseInProgress ? "disabled" : ""}>${t("jailCardUse")}</button></div>`).join("");
+  $("heldJailCardsList").querySelectorAll("[data-use-jail-card]").forEach(button => button.addEventListener("click", () => useJailReleaseCard(button.dataset.useJailCard)));
+}
+
+async function useJailReleaseCard(cardId) {
+  if (!gameId || !currentPlayerId || diceRollInProgress || jailCardUseInProgress) return;
+  const code = gameId, playerId = currentPlayerId, session = boardSessionGeneration;
+  jailCardUseInProgress = true;
+  renderHeldJailCards();
+  try {
+    const gameRef = doc(db, "games", code), playerRef = doc(db, "games", code, "players", playerId);
+    const result = await runTransaction(db, async tx => {
+      const gameSnap = await tx.get(gameRef), playerSnap = await tx.get(playerRef);
+      if (gameId !== code || currentPlayerId !== playerId || boardSessionGeneration !== session) throw new Error(t("playerGone"));
+      if (!gameSnap.exists()) throw new Error(t("gameNotFound"));
+      if (!playerSnap.exists()) throw new Error(t("playerGone"));
+      const holders = await transactionJailCardHolders(tx, gameSnap.data(), code);
+      if (holders[cardId] !== playerId) throw new Error(t("jailCardUnavailable"));
+      if (playerBoardPosition(playerSnap.data()) !== 10) throw new Error(t("jailCardNotInJail"));
+      delete holders[cardId];
+      const version = Number(gameSnap.data().jailCardVersion || 0) + 1;
+      tx.update(gameRef, { heldJailCards: holders, jailCardVersion: version });
+      return { holders, version };
+    });
+    if (gameId === code && currentPlayerId === playerId && boardSessionGeneration === session) {
+      applyJailCardState(result.holders, result.version);
+      $("heldJailCardsDialog").close();
+      setStatus("", false, "jailCardUsed");
+    }
+  } catch (err) { if (gameId === code && boardSessionGeneration === session) handleError(err); }
+  finally { jailCardUseInProgress = false; renderHeldJailCards(); boardController.sync(); }
 }
 
 function renderPlayers() {
+  renderHeldJailCards();
   renderPlayerOptions();
   renderPrivateMessageBadge();
   renderTurnStatus();
@@ -1785,6 +1979,12 @@ function propertiesOwnedBy(playerId) {
     const bIndex = presetOrder.get(b.presetId || b.id) ?? Number.MAX_SAFE_INTEGER;
     return aIndex - bIndex || propertyDisplayName(a).localeCompare(propertyDisplayName(b), language);
   });
+}
+
+function openPropertiesDialog() {
+  renderPropertySelect();
+  renderProperties();
+  if (!els.propertyDialog.open) els.propertyDialog.showModal();
 }
 
 // Board shortcuts reuse the existing buying/auction UI and owner rent list.
@@ -1937,6 +2137,7 @@ function renderPrivateMessageBadge() {
   els.privateMessageBadge.textContent = count > 99 ? "99+" : String(count);
   els.privateMessageBadge.classList.toggle("hidden", count === 0);
   els.privateMessagesBtn.setAttribute("aria-label", `${t("privateMessages")}${count ? ` (${count})` : ""}`);
+  boardController.sync();
 }
 
 function showPrivateMessageToast(senderName) {
@@ -2735,7 +2936,7 @@ async function addProperty(event) {
 }
 
 function renderProperties() {
-  const mine = properties.filter(p => p.ownerId === currentPlayerId);
+  const mine = propertiesOwnedBy(currentPlayerId);
   if (!mine.length) {
     els.propertyList.innerHTML = `<div class="empty">${t("noPropertiesYet")}</div>`;
     return;
@@ -3172,9 +3373,18 @@ function handleError(err) {
 // The visual board reuses the app's source-of-truth arrays and existing SVG icons.
 // No additional Firestore listeners, frameworks, build tools or game rules.
 const boardController = createBoardController({
-  getState: () => ({ gameId, currentPlayerId, gameData, players, properties, language, diceRollInProgress }),
+  getState: () => ({ gameId, currentPlayerId, gameData, players, properties, language, diceRollInProgress: diceRollInProgress || jailCardUseInProgress,
+    unreadMessageCount: unreadPrivateMessages().length,
+    status: { text: els.statusBar.textContent, error: els.statusBar.classList.contains("error") } }),
   presets: PROPERTY_PRESETS, playerIconSvg, money, onRollDice: openDiceDialog, translate: t,
   onPropertySelect: openBoardProperty,
+  onGameAction: action => {
+    if (action === "end-turn") return endTurn();
+    if (action === "messages") return openPrivateMessages();
+    if (action === "properties") return openPropertiesDialog();
+    if (action === "claim-pot") return claimFreeParking();
+    if (["bank-receive", "player", "bank-pay", "free-parking-pay"].includes(action)) return openMoneyDialog(action);
+  },
   onReset: () => {
     boardSessionGeneration++;
     activeDiceRollId = "";
@@ -3185,6 +3395,9 @@ const boardController = createBoardController({
 });
 
 applyLanguage();
+
+$("heldJailCardBtn").addEventListener("click", () => { renderHeldJailCards(); $("heldJailCardsDialog").showModal(); });
+$("closeHeldJailCards").addEventListener("click", () => $("heldJailCardsDialog").close());
 
 els.createGameBtn.addEventListener("click", () => {
   els.gameVisibilitySelect.value = "public";
@@ -3239,7 +3452,7 @@ els.cancelMoneyDialog.addEventListener("click", closeMoneyDialog);
 els.moneyDialog.addEventListener("cancel", () => { els.moneyForm.reset(); moneyMode = null; });
 els.undoBtn.addEventListener("click", undoLastTransaction);
 els.endTurnBtn.addEventListener("click", () => endTurn());
-els.propertyBtn.addEventListener("click", () => { renderPropertySelect(); renderProperties(); els.propertyDialog.showModal(); });
+els.propertyBtn.addEventListener("click", openPropertiesDialog);
 els.closePropertyDialog.addEventListener("click", () => els.propertyDialog.close());
 els.addPropertyForm.addEventListener("submit", addProperty);
 els.propertyPresetToggle.addEventListener("click", () => { propertyChoicesOpen = !propertyChoicesOpen; renderPropertySelect(); });

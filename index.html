@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#101820" />
   <title>Monopoly Bank</title>
   <link rel="stylesheet" href="style.css?v=20260927-8" />
-  <link rel="stylesheet" href="board.css?v=20261003-2" />
+  <link rel="stylesheet" href="board.css?v=20261003-8" />
 </head>
 <body>
   <main class="shell">
@@ -89,6 +89,12 @@
         <button id="privateMessagesBtn" class="action-card"><strong data-i18n="privateMessages">Private messages</strong><span data-i18n="privateMessagesCopy">Chat privately with a player</span><span id="privateMessageBadge" class="unread-badge hidden">0</span></button>
         <button id="diceRollBtn" class="action-card"><strong data-i18n="rollDice">Roll dice</strong><span data-i18n="rollDiceCopy">Roll two dice</span></button>
         <button id="openBoardBtn" class="action-card"><strong data-board-label="board">Board</strong><span data-board-label="boardCopy">Explore the live game board</span></button>
+        <button id="heldJailCardBtn" class="action-card held-jail-card hidden" type="button" aria-haspopup="dialog" aria-controls="heldJailCardsDialog">
+          <strong data-i18n="jailFreeCard">Get Out of Jail Free</strong>
+          <span id="heldJailCardHint"></span>
+          <span id="heldJailCardCount" class="held-jail-card-count"></span>
+          <span class="held-jail-card-art" aria-hidden="true"></span>
+        </button>
       </div>
 
       <div class="card">
@@ -121,7 +127,7 @@
         <button id="closeBoardBtn" type="button" class="icon-button" data-board-aria="close" aria-label="Close">×</button>
       </div>
       <div class="board-controls">
-        <div class="board-zoom-controls">
+        <div class="board-zoom-controls hidden" aria-hidden="true">
           <button id="boardZoomOut" class="button" type="button" data-board-aria="zoomOut" aria-label="Zoom out">−</button>
           <button id="boardZoomReset" class="button" type="button" aria-label="100%">100%</button>
           <button id="boardZoomIn" class="button" type="button" data-board-aria="zoomIn" aria-label="Zoom in">+</button>
@@ -129,12 +135,38 @@
         <button id="boardCenterMe" class="button" type="button" data-board-label="centerMe">Center on me</button>
         <button id="boardFit" class="button" type="button" data-board-label="fit">Show full board</button>
         <button id="boardDiceBtn" class="button primary" type="button" data-board-label="rollDice">Roll dice</button>
-        <label class="board-follow"><input id="boardFollow" type="checkbox" checked /><span data-board-label="follow">Follow my token</span></label>
+        <label class="board-follow"><input id="boardFollow" type="checkbox" /><span data-board-label="follow">Follow my token</span></label>
       </div>
+      <!-- These shortcuts reuse the existing dialogs, keeping the board underneath. -->
+      <nav class="board-game-actions" aria-label="Game actions" data-i18n-aria-label="gameActions">
+        <button id="boardEndTurnBtn" class="button primary" type="button" data-board-action="end-turn" data-i18n="endTurn">End turn</button>
+        <button id="boardMessagesBtn" class="button board-message-action" type="button" data-board-action="messages"><span data-i18n="privateMessages">Private messages</span><span id="boardMessageBadge" class="board-unread-count hidden"></span></button>
+        <button id="boardPropertiesBtn" class="button" type="button" data-board-action="properties" data-i18n="properties">Properties</button>
+        <details id="boardClaimMenu" class="board-action-menu">
+          <summary class="button"><span data-i18n="claim">Claim</span><span aria-hidden="true">▾</span></summary>
+          <div class="board-action-options">
+            <button class="button" type="button" data-board-action="bank-receive" data-i18n="receive">Receive</button>
+            <button id="boardClaimPotBtn" class="button" type="button" data-board-action="claim-pot"><span data-i18n="claimFreeParking">Free Parking</span><small><span data-i18n="claimPotPrefix">Claim pot:</span> <strong id="boardClaimPotValue">0</strong></small></button>
+          </div>
+        </details>
+        <details id="boardPayMenu" class="board-action-menu">
+          <summary class="button"><span data-i18n="pay">Pay</span><span aria-hidden="true">▾</span></summary>
+          <div class="board-action-options">
+            <button id="boardPayPlayerBtn" class="button" type="button" data-board-action="player" data-i18n="payPlayer">Pay player</button>
+            <button class="button" type="button" data-board-action="bank-pay" data-i18n="payBank">Pay bank</button>
+            <button class="button" type="button" data-board-action="free-parking-pay" data-i18n="payFreeParking">Pay to center</button>
+          </div>
+        </details>
+        <div class="board-player-balance" role="status" aria-live="polite" aria-atomic="true">
+          <div><span data-i18n="yourBalance">YOUR BALANCE</span><span id="boardBalancePlayer"></span></div>
+          <strong id="boardBalanceValue">—</strong>
+        </div>
+      </nav>
       <div id="boardViewport" class="board-viewport" tabindex="0" aria-describedby="boardHint">
         <div id="boardWorld" class="board-world"><div id="gameBoard" class="game-board" role="group" aria-label="Game board"></div></div>
       </div>
       <div id="boardMovementStatus" class="board-status" role="status" aria-live="polite"></div>
+      <div id="boardAppStatus" class="board-status board-app-status" role="status" aria-live="polite"></div>
     </div>
   </dialog>
 
@@ -142,10 +174,22 @@
     <div class="modal-card board-card">
       <div id="boardCardSymbol" class="board-card-symbol" aria-hidden="true"></div>
       <h2 id="boardCardTitle"></h2>
+      <p id="boardCardPlayer" class="muted"></p>
       <p id="boardCardText"></p>
       <p class="muted" data-board-label="informational">Informational only — carry out any effects manually.</p>
-      <button id="closeBoardCard" class="button primary" type="button" data-board-label="close">Close</button>
+      <button id="closeBoardCard" class="button primary" type="button" data-i18n="acknowledge">Acknowledge</button>
     </div>
+  </dialog>
+
+  <dialog id="heldJailCardsDialog" class="modal" aria-labelledby="heldJailCardsTitle" aria-describedby="heldJailCardsHelp">
+    <section class="modal-card">
+      <div class="section-heading">
+        <h2 id="heldJailCardsTitle" data-i18n="jailFreeCard">Get Out of Jail Free</h2>
+        <button id="closeHeldJailCards" type="button" class="icon-button" data-i18n-aria-label="close" aria-label="Close">×</button>
+      </div>
+      <p id="heldJailCardsHelp" class="muted" data-i18n="jailCardHelp">Use a held card from Jail / Just Visiting. After use, it returns to its original deck.</p>
+      <div id="heldJailCardsList"></div>
+    </section>
   </dialog>
 
   <dialog id="moneyDialog" class="modal">
@@ -323,6 +367,6 @@
     </form>
   </dialog>
 
-  <script type="module" src="app.js?v=20261003-4"></script>
+  <script type="module" src="app.js?v=20261003-8"></script>
 </body>
 </html>

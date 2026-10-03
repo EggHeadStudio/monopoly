@@ -31,10 +31,12 @@ export const BOARD_SPACES = [
   specialSpace(38, "tax", "Luxury tax", "Ylellisyysvero"), propertySpace(39, "Erottaja")
 ];
 
-// Original informational placeholders. No card effects are executed by this feature.
+// Movement is structured data, never parsed from translated instructions.
+// Money stays manual; the two jail-release cards are retained until used.
 export const CHANCE_CARDS = [
   {
     id: "chance_01",
+    movement: { propertyId: "Erottaja" },
     text: {
       en: "Move to Erottaja.",
       fi: "Siirry Erottajalle."
@@ -42,6 +44,7 @@ export const CHANCE_CARDS = [
   },
   {
     id: "chance_02",
+    movement: { destination: 0 },
     text: {
       en: "Move to GO and collect 200 from the bank.",
       fi: "Siirry lähtöruutuun ja vastaanota pankilta 200."
@@ -49,6 +52,7 @@ export const CHANCE_CARDS = [
   },
   {
     id: "chance_03",
+    movement: { propertyId: "Simonkatu" },
     text: {
       en: "Move to Simonkatu. If you pass GO, collect 200 from the bank.",
       fi: "Siirry Simonkadulle. Jos ohitat lähtöruudun, vastaanota pankilta 200."
@@ -56,6 +60,7 @@ export const CHANCE_CARDS = [
   },
   {
     id: "chance_04",
+    movement: { propertyId: "Hämeentie" },
     text: {
       en: "Move to Hämeentie. If you pass GO, collect 200 from the bank.",
       fi: "Siirry Hämeentielle. Jos ohitat lähtöruudun, vastaanota pankilta 200."
@@ -63,6 +68,7 @@ export const CHANCE_CARDS = [
   },
   {
     id: "chance_05",
+    movement: { nearestType: "station" },
     text: {
       en: "Move to the nearest station. If it is owned, pay the owner a normal station rent.",
       fi: "Siirry lähimmälle asemalle. Jos asema on omistettu, maksa omistajalle normaali asemavuokra."
@@ -70,6 +76,7 @@ export const CHANCE_CARDS = [
   },
   {
     id: "chance_06",
+    movement: { nearestType: "station" },
     text: {
       en: "Move to the nearest station. If it is owned, pay the owner double the normal station rent.",
       fi: "Siirry lähimmälle asemalle. Jos asema on omistettu, maksa omistajalle kaksinkertainen normaali asemavuokra."
@@ -77,6 +84,7 @@ export const CHANCE_CARDS = [
   },
   {
     id: "chance_07",
+    movement: { nearestType: "utility" },
     text: {
       en: "Move to the nearest utility. If it is owned, roll the dice and pay the owner 10 times the total rolled.",
       fi: "Siirry lähimmälle laitokselle. Jos se on omistettu, heitä noppia ja maksa omistajalle 10 kertaa noppien summa."
@@ -91,6 +99,7 @@ export const CHANCE_CARDS = [
   },
   {
     id: "chance_09",
+    keepUntilUsed: true,
     text: {
       en: "Get Out of Jail Free. Keep this card until you need it.",
       fi: "Vapaudu vankilasta ilmaiseksi. Säilytä kortti, kunnes tarvitset sitä."
@@ -98,6 +107,7 @@ export const CHANCE_CARDS = [
   },
   {
     id: "chance_10",
+    movement: { steps: -3 },
     text: {
       en: "Move back 3 spaces.",
       fi: "Siirry 3 ruutua taaksepäin."
@@ -105,6 +115,7 @@ export const CHANCE_CARDS = [
   },
   {
     id: "chance_11",
+    movement: { destination: 10, direct: true },
     text: {
       en: "Go directly to Jail. Do not pass GO and do not collect 200.",
       fi: "Siirry suoraan vankilaan. Älä kulje lähtöruudun kautta äläkä vastaanota 200."
@@ -126,6 +137,7 @@ export const CHANCE_CARDS = [
   },
   {
     id: "chance_14",
+    movement: { propertyId: "Pasilan asema" },
     text: {
       en: "Take a trip to Pasilan asema. If you pass GO, collect 200 from the bank.",
       fi: "Matkusta Pasilan asemalle. Jos ohitat lähtöruudun, vastaanota pankilta 200."
@@ -151,6 +163,7 @@ export const CHANCE_CARDS = [
 export const COMMUNITY_CHEST_CARDS = [
   {
     id: "community_01",
+    movement: { destination: 0 },
     text: {
       en: "Move to GO and collect 200 from the bank.",
       fi: "Siirry lähtöruutuun ja vastaanota pankilta 200."
@@ -179,6 +192,7 @@ export const COMMUNITY_CHEST_CARDS = [
   },
   {
     id: "community_05",
+    keepUntilUsed: true,
     text: {
       en: "Get Out of Jail Free. Keep this card until you need it.",
       fi: "Vapaudu vankilasta ilmaiseksi. Säilytä kortti, kunnes tarvitset sitä."
@@ -186,6 +200,7 @@ export const COMMUNITY_CHEST_CARDS = [
   },
   {
     id: "community_06",
+    movement: { destination: 10, direct: true },
     text: {
       en: "Go directly to Jail. Do not pass GO and do not collect 200.",
       fi: "Siirry suoraan vankilaan. Älä kulje lähtöruudun kautta äläkä vastaanota 200."
@@ -268,6 +283,22 @@ const LABELS = {
   fi: { board: "Pelilauta", boardCopy: "Tutki pelin reaaliaikaista lautaa", gestureHint: "Ctrl + rulla: zoomaus · vedä: siirrä · kosketus: kaksi sormea · nuolinäppäimet: siirrä", centerMe: "Keskitä minuun", fit: "Näytä koko lauta", follow: "Seuraa pelinappulaani", zoomIn: "Lähennä", zoomOut: "Loitonna", close: "Sulje", rollDice: "Heitä noppaa", turn: "Vuorossa", gameCode: "Pelikoodi", pot: "Vapaan pysäköinnin potti", manual: "Vuokrat, rahat, verot ja vankilasäännöt hoidetaan käsin", informational: "Vain tiedoksi — toteuta mahdolliset vaikutukset käsin.", moving: "Liikkuu", landed: "Saapui ruutuun", noTurn: "Odotetaan vuoroa", owner: "Omistaja", mortgaged: "Kiinnitetty", houses: "taloa", hotel: "Hotelli", chance: "Sattuma", community: "Yhteismaa" }
 };
 
+export function cardMovementRoute(card, from) {
+  const effect = card?.movement;
+  if (!effect) return null;
+  let destination;
+  if (Number.isInteger(effect.steps)) destination = ((from + effect.steps) % 40 + 40) % 40;
+  else if (effect.nearestType) {
+    for (let step = 1; step <= 40; step++) {
+      const index = (from + step) % 40;
+      if (BOARD_SPACES[index].type === effect.nearestType) { destination = index; break; }
+    }
+  } else if (effect.propertyId) destination = BOARD_SPACES.find(space => space.propertyId === effect.propertyId)?.index;
+  else destination = effect.destination;
+  if (!Number.isInteger(destination) || destination < 0 || destination >= 40) throw new Error("Invalid card movement destination.");
+  return { from, destination, direct: Boolean(effect.direct), steps: effect.steps ?? (destination - from + 40) % 40 };
+}
+
 export function playerBoardPosition(player) {
   return Number.isInteger(player?.position) && player.position >= 0 && player.position < 40 ? player.position : 0;
 }
@@ -296,13 +327,15 @@ const SYMBOLS = {
 const buildingSvg = hotel => `<svg viewBox="0 0 24 22" aria-hidden="true"><path fill="currentColor" stroke="#173b2a" stroke-width="1" d="${hotel ? 'M3 5h18v15H3z' : 'M2 10 12 2l10 8h-3v10H5V10z'}"/><path fill="#fff" d="${hotel ? 'M6 8h3v3H6zm9 0h3v3h-3zM6 13h3v3H6zm9 0h3v3h-3zM11 15h3v5h-3z' : 'M10 13h4v7h-4z'}"/></svg>`;
 
 // All state comes from the existing app subscriptions; this controller owns only DOM/camera state.
-export function createBoardController({ getState, presets, playerIconSvg, money, onRollDice, translate = key => key, onReset = () => {}, onPropertySelect = () => {} }) {
+export function createBoardController({ getState, presets, playerIconSvg, money, onRollDice, translate = key => key, onReset = () => {}, onPropertySelect = () => {}, onGameAction = () => {} }) {
   const $ = id => document.getElementById(id);
   const dialog = $("boardDialog"), viewport = $("boardViewport"), world = $("boardWorld"), board = $("gameBoard");
   const presetMap = new Map(presets.map(preset => [preset.id, preset]));
   const spaces = new Map(), tokens = new Map(), localPositions = new Map();
   let rendered = false, animationGeneration = 0, activeCard = null, lastDice = null;
   let movementStatus = null;
+  let cardQueue = [];
+  let gameActionPending = false;
   const label = key => LABELS[getState().language]?.[key] || LABELS.en[key] || key;
   const spaceName = space => {
     const names = space.propertyId ? presetMap.get(space.propertyId)?.name : space.name;
@@ -389,6 +422,23 @@ export function createBoardController({ getState, presets, playerIconSvg, money,
     $("boardDiceStatus").textContent = lastDice ? `${lastDice.first} + ${lastDice.second} = ${lastDice.first + lastDice.second}${lastDice.resultKey ? ` · ${translate(lastDice.resultKey)}` : ""}` : "";
     $("boardDiceBtn").disabled = state.diceRollInProgress || state.currentPlayerId !== state.gameData.currentTurnPlayerId;
     $("boardCenterMe").disabled = !state.players.some(player => player.id === state.currentPlayerId);
+    const hasPlayer = state.players.some(player => player.id === state.currentPlayerId);
+    const selectedPlayer = state.players.find(player => player.id === state.currentPlayerId);
+    $("boardBalancePlayer").textContent = selectedPlayer?.name || "";
+    $("boardBalanceValue").textContent = selectedPlayer ? money(selectedPlayer.balance) : "—";
+    $("boardBalanceValue").closest(".board-player-balance").classList.toggle("is-negative", Number(selectedPlayer?.balance || 0) < 0);
+    document.querySelectorAll("[data-board-action]").forEach(button => { button.disabled = !hasPlayer || gameActionPending; });
+    $("boardEndTurnBtn").disabled = !hasPlayer || gameActionPending || state.diceRollInProgress || state.currentPlayerId !== state.gameData.currentTurnPlayerId;
+    $("boardClaimPotBtn").disabled = !hasPlayer || gameActionPending || Number(state.gameData.freeParkingPot || 0) <= 0;
+    $("boardPayPlayerBtn").disabled = !hasPlayer || gameActionPending || state.players.length < 2;
+    $("boardMessagesBtn").disabled = !hasPlayer || gameActionPending || state.players.length < 2;
+    $("boardClaimPotValue").textContent = money(state.gameData.freeParkingPot || 0);
+    const badge = $("boardMessageBadge"), count = state.unreadMessageCount || 0;
+    badge.textContent = count > 99 ? "99+" : String(count);
+    badge.classList.toggle("hidden", !count);
+    $("boardMessagesBtn").setAttribute("aria-label", `${translate("privateMessages")}${count ? ` (${count})` : ""}`);
+    $("boardAppStatus").textContent = state.status?.text || "";
+    $("boardAppStatus").classList.toggle("error", Boolean(state.status?.error));
   }
 
   function updateBoardBuildings() {
@@ -481,15 +531,14 @@ export function createBoardController({ getState, presets, playerIconSvg, money,
     sync();
     requestAnimationFrame(() => {
       updateBoardPlayers();
-      if (viewport.clientWidth < 600) { setBoardZoom(Math.min(3, 0.9 / boardFitBasis())); centerBoardOnPlayer(getState().currentPlayerId); }
-      else fitBoardToViewport();
+      fitBoardToViewport();
       requestAnimationFrame(() => board.classList.remove("board-opening"));
     });
   }
 
-  function closeBoardDialog() { dialog.close(); }
+  function closeBoardDialog() { closeBoardActionMenus(); dialog.close(); }
 
-  async function animatePlayerMovement(playerId, fromPosition, steps) {
+  async function animatePlayerMovement(playerId, fromPosition, steps, direction = 1) {
     const generation = animationGeneration;
     $("boardMovementStatus").classList.remove("error");
     localPositions.set(playerId, fromPosition);
@@ -497,7 +546,7 @@ export function createBoardController({ getState, presets, playerIconSvg, money,
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     for (let step = 1; step <= steps; step++) {
       if (generation !== animationGeneration) throw new Error(translate("boardMovementCancelled"));
-      const position = (fromPosition + step) % 40;
+      const position = ((fromPosition + step * direction) % 40 + 40) % 40;
       localPositions.set(playerId, position);
       updateBoardPlayers();
       movementStatus = { stage: "moving", playerId, position };
@@ -506,7 +555,7 @@ export function createBoardController({ getState, presets, playerIconSvg, money,
       await new Promise(resolve => setTimeout(resolve, 160));
     }
     if (generation !== animationGeneration) throw new Error(translate("boardMovementCancelled"));
-    return (fromPosition + steps) % 40;
+    return ((fromPosition + steps * direction) % 40 + 40) % 40;
   }
 
   function relocatePlayerOnBoard(playerId, position) {
@@ -531,19 +580,26 @@ export function createBoardController({ getState, presets, playerIconSvg, money,
     renderMovementStatus();
   }
 
-  function drawCard(type) {
-    const cards = type === "chance" ? CHANCE_CARDS : COMMUNITY_CHEST_CARDS;
-    return { type, ...cards[crypto.getRandomValues(new Uint32Array(1))[0] % cards.length] };
+  function drawCard(type, holders = {}, seed = crypto.getRandomValues(new Uint32Array(1))[0]) {
+    const cards = (type === "chance" ? CHANCE_CARDS : COMMUNITY_CHEST_CARDS)
+      .filter(card => !card.keepUntilUsed || !holders[card.id]);
+    return cards.length ? { type, ...cards[seed % cards.length] } : null;
   }
-  function drawChanceCard() { return drawCard("chance"); }
-  function drawCommunityChestCard() { return drawCard("community"); }
+  function drawChanceCard(holders, seed) { return drawCard("chance", holders, seed); }
+  function drawCommunityChestCard(holders, seed) { return drawCard("community", holders, seed); }
   function renderCard() {
     $("boardCardDialog").dataset.type = activeCard.type;
     $("boardCardTitle").textContent = label(activeCard.type);
     $("boardCardText").textContent = activeCard.text[getState().language] || activeCard.text.en;
     $("boardCardSymbol").innerHTML = SYMBOLS[activeCard.type];
+    $("boardCardPlayer").textContent = activeCard.playerName
+      ? translate("cardDrawnBy").replace("{name}", activeCard.playerName) : "";
+    $("closeBoardCard").textContent = translate("acknowledge");
+    $("boardCardDialog").querySelector('[data-board-label="informational"]').textContent = activeCard.keepUntilUsed
+      ? translate("jailCardShared") : translate("cardManualMoney");
   }
   function showCard(card) {
+    if ($("boardCardDialog").open) { cardQueue.push(card); return; }
     activeCard = card;
     renderCard();
     if (!$("boardCardDialog").open) $("boardCardDialog").showModal();
@@ -553,6 +609,7 @@ export function createBoardController({ getState, presets, playerIconSvg, money,
     animationGeneration++;
     onReset();
     localPositions.clear(); lastDice = null; activeCard = null; movementStatus = null;
+    cardQueue = [];
     if (dialog.open) closeBoardDialog();
     if ($("boardCardDialog").open) $("boardCardDialog").close();
     $("boardMovementStatus").textContent = "";
@@ -718,6 +775,50 @@ export function createBoardController({ getState, presets, playerIconSvg, money,
   $("openBoardBtn").addEventListener("click", openBoardDialog);
   $("closeBoardBtn").addEventListener("click", closeBoardDialog);
   $("boardDiceBtn").addEventListener("click", onRollDice);
-  $("closeBoardCard").addEventListener("click", () => $("boardCardDialog").close());
+  function closeBoardActionMenus(except = null) {
+    for (const menu of [$("boardClaimMenu"), $("boardPayMenu")]) if (menu !== except) menu.open = false;
+  }
+  for (const menu of [$("boardClaimMenu"), $("boardPayMenu")]) {
+    menu.addEventListener("toggle", () => {
+      if (!menu.open) return;
+      closeBoardActionMenus(menu);
+      // Wrapped action buttons can sit at either edge on a phone. Keep the
+      // dropdown inside the dialog instead of letting a right-aligned menu escape.
+      const options = menu.querySelector(".board-action-options");
+      const anchor = menu.getBoundingClientRect(), bounds = dialog.getBoundingClientRect();
+      const left = Math.max(bounds.left + 12, Math.min(anchor.left, bounds.right - options.offsetWidth - 12));
+      options.style.left = `${left - anchor.left}px`;
+      options.style.right = "auto";
+    });
+    menu.addEventListener("keydown", event => {
+      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); menu.open = false; menu.querySelector("summary").focus(); }
+    });
+  }
+  document.addEventListener("pointerdown", event => {
+    if (!event.target.closest(".board-action-menu")) closeBoardActionMenus();
+  });
+  dialog.addEventListener("close", () => closeBoardActionMenus());
+  document.querySelectorAll("[data-board-action]").forEach(button => button.addEventListener("click", async () => {
+    if (button.disabled || gameActionPending) return;
+    closeBoardActionMenus();
+    gameActionPending = true;
+    updateBoardCenter();
+    try { await onGameAction(button.dataset.boardAction); }
+    finally { gameActionPending = false; updateBoardCenter(); }
+  }));
+  function acknowledgeCard() {
+    $("boardCardDialog").close();
+    activeCard = null;
+    const next = cardQueue.shift();
+    if (next) showCard(next);
+  }
+  $("closeBoardCard").addEventListener("click", acknowledgeCard);
+  $("boardCardDialog").addEventListener("cancel", event => { event.preventDefault(); acknowledgeCard(); });
+  $("boardCardDialog").addEventListener("close", () => {
+    if ($("boardCardDialog").open) return;
+    activeCard = null;
+    const next = cardQueue.shift();
+    if (next) showCard(next);
+  });
   return { sync, reset, openBoardDialog, animatePlayerMovement, relocatePlayerOnBoard, finishMovement, setMovementError, drawChanceCard, drawCommunityChestCard, showCard, setDice };
 }

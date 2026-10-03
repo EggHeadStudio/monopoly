@@ -179,6 +179,9 @@ games/{gameCode}
   status
   createdAt
   createdBy
+  heldJailCards              # card id -> owning player id (missing means free)
+  jailCardVersion            # shared inventory revision
+  cardDrawEvents             # last 20 shared draws, with drawer and ordered card ids
 
   players/{playerId}
     name
@@ -219,6 +222,21 @@ selected player's piece one space at a time (160 ms per step); starting rolls ne
 move a piece. You can also open the existing dice dialog from the board toolbar.
 The settled dice and total stay visible for one second before movement starts.
 
+Every board opening starts with **Show full board**, on desktop and mobile.
+**Follow my token** is unchecked by default; you can enable it when wanted.
+The board toolbar also shows your selected player's live name/balance and provides
+**Properties / Tontit**, **End turn**, **Private messages** (with unread count),
+and two action dropdowns:
+
+- **Claim / Lunasta:** Receive from the bank; Free Parking (live pot amount).
+- **Pay / Maksa:** Pay player; Pay bank; Pay to center.
+
+These reuse the existing banking and messaging dialogs above the board. Closing
+them reveals the same board/camera state. Pot claims retain their confirmation
+prompt, and End turn is unavailable when it is not your turn or movement is active.
+Selecting an action, clicking outside a dropdown or pressing Escape closes it.
+Feedback from manual actions is also shown inside the board footer.
+
 Click or tap a property, station or utility to navigate its existing controls:
 free spaces open **Properties / Tontit** with that property selected for buying or
 auctioning. Owned spaces close the board and expand the owner's player list,
@@ -227,13 +245,15 @@ your selected player. Rent payments remain manual. Dragging or pinching does not
 activate these shortcuts, and shortcuts are paused while dice/movement is active.
 
 - Desktop: drag to pan; **Ctrl + mouse wheel** to zoom. An ordinary wheel does not zoom.
+- The minus/percentage/plus zoom buttons are hidden; gesture and keyboard zoom,
+  **Center on me** and **Show full board** remain available.
 - Touch: use two fingers to pinch and pan inside the board. One finger does not move
   the camera. Native touch scrolling is unchanged outside the board viewport.
 - Keyboard: focus the board viewport and use arrow keys to pan, or + / − to zoom.
 - **Center on me** preserves zoom. **Show full board** fits all 40 spaces on any screen.
 - The zoom control ranges from 55% to 300% relative to a responsive fit basis.
   On small screens this basis allows a full-board overview at the minimum zoom;
-  mobile opening zoom is intentionally closer and centered on the selected player.
+  use zoom controls and **Center on me** to inspect your player's surroundings.
 - **Follow my token** gently follows movement, unless the camera was adjusted manually
   within the last four seconds.
 
@@ -243,21 +263,57 @@ allow the added player fields. There is no migration: missing positions are read
 as GO, and new players are stored with `position: 0`.
 
 Intermediate animation steps stay local. A transaction writes only the final
-position and last-roll metadata. It checks the original turn, position and revision
+position and last-roll metadata. A retainable jail-card draw also updates the shared
+game inventory in that same transaction. It checks the original turn, position and revision
 so concurrent rolls from two devices cannot apply movement twice. If a commit
 fails, the local token returns to the last synchronized position and the error is
 shown inside the board. Other clients receive the final position through their
 existing player snapshot. Closing the board does not cancel a roll; leaving the
 game cancels its pending local animation.
 
-Landing on Chance or Community Chest draws one informational placeholder card on
-the rolling device after a successful commit. Rerendering or reopening the board
-does not draw again. Card definitions are ready for future effects, but currently
-**rent, purchases, GO salary, taxes, card effects and jail rules remain manual**.
+Landing on Chance or Community Chest draws a card after a successful commit.
+Cards with `movement` metadata automatically move to a named property, GO, the
+next station/utility in the forward direction, backward three spaces, or directly
+to jail. Forward/backward routes animate locally; direct jail movement does not
+pass GO. Back-three can trigger a follow-up Community Chest draw. All resulting
+positions, retained-card ownership and shared events commit atomically, with no
+per-space writes or money changes. The rolling client animates the committed card
+routes; other clients see the final position through their existing snapshot.
+
+All clients already connected to the game receive each draw, labelled with the
+drawer's name. **Acknowledge / Ymmärretty** dismisses only that viewer's popup;
+multiple cards queue in draw order. Dismissal never runs effects or makes writes.
+Initial connection treats existing events as history, rather than reopening old
+cards. A bounded history of 20 draws covers ordinary live snapshot updates; this
+is not a permanent activity log or guaranteed offline notification system.
+Rerendering, repeated snapshots and acknowledgement cannot repeat a draw/effect.
+
+**Payments, bank collections, GO salary, rent and jail rules remain manual.**
+For card charges, use **Pay to center** to add money to the Free Parking pot;
+for bank rewards, use **Receive**. Player-to-player charges still use **Pay player**.
 Landing on **Go to Jail** immediately relocates the token to **Jail / Just Visiting**
 (space 10), using the same final-position write. Passing the space does not trigger
 the relocation. This adds no jail fines, skipped turns or release rules.
 The existing third-double turn behavior is preserved; this is not a rules engine.
+
+**Get Out of Jail Free cards:** the Chance and Community Chest release cards have
+`keepUntilUsed: true`. Drawing either awards it to that player and excludes it from
+all subsequent draws while held. The shared game inventory is rechecked inside the
+transaction, so a concurrent client cannot claim the same card. Ordinary cards
+still draw independently with replacement; this is not a fully shuffled deck.
+
+A held-card button appears next to **Board**. Two cards show a stacked graphic and
+count; opening it lets the player choose which deck's card to use. Use is enabled
+from **Jail / Just Visiting (10)**, returns only the chosen card to its original
+draw pool, and changes no balance or token position. Jail confinement, skipped
+turns and release rolls are not enforced, so this currently uses the space position
+as eligibility (including just visiting). Players can roll normally afterward.
+Cards belonging to a deleted player become available after transactional verification
+that the player document no longer exists. No new listeners, collections, rule
+changes or migration are required. Old games default to an empty inventory.
+
+The **Properties / Tontit** owned-property list uses the preset color-group order,
+matching the player ownership lists, rather than purchase time.
 
 ### Isolated browser checks
 
@@ -266,7 +322,8 @@ The test page executes the actual application with an in-memory Firestore substi
 not the Firebase SDK, and never connects to or changes a live game. It checks board
 definitions, legacy positions, token layout, live property/pot updates, zoom limits,
 step-by-step movement, one final write, idempotency, stale turns/revisions, GO wrapping,
-card draws, starting rolls, the one-second dice preview, property navigation,
+card destinations, backwards/chained moves, shared draw acknowledgements and
+deduplication, retained-card ownership, starting rolls, the one-second dice preview, property navigation,
 tap-versus-drag/multitouch handling and failed-commit recovery. It also leaves the board open
 with eight test players for manual desktop and touch gesture checks.
 

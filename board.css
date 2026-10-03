@@ -11,6 +11,28 @@
 .board-zoom-controls { display: flex; gap: 4px; }
 .board-follow { display: flex; align-items: center; gap: 6px; font-size: .75rem; margin-left: auto; }
 .board-follow input { width: 17px; height: 17px; accent-color: #276749; }
+.board-game-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 20px 12px; position: relative; z-index: 10; }
+.board-game-actions .button { font-size: .8rem; padding: 9px 12px; }
+.board-game-actions button:disabled { opacity: .45; cursor: default; }
+.board-player-balance { margin-left: auto; display: flex; align-items: center; gap: 14px; padding: 7px 12px; border: 1px solid #b9d0bd; border-radius: 12px; background: #e8f2e5; min-width: 0; max-width: 100%; }
+.board-player-balance > div { display: grid; gap: 2px; min-width: 0; }
+.board-player-balance [data-i18n="yourBalance"] { font-size: .6rem; font-weight: 800; letter-spacing: .08em; color: #617a65; }
+#boardBalancePlayer { font-size: .78rem; font-weight: 700; overflow-wrap: anywhere; }
+#boardBalanceValue { font-size: 1.2rem; color: #244d33; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.board-player-balance.is-negative #boardBalanceValue { color: #a63d3d; }
+.board-action-menu { position: relative; }
+.board-action-menu summary { display: flex; align-items: center; gap: 12px; cursor: pointer; list-style: none; }
+.board-action-menu summary::-webkit-details-marker { display: none; }
+.board-action-menu[open] summary { border-color: #276749; background: #eef6ee; }
+.board-action-options { position: absolute; top: calc(100% + 6px); right: 0; width: min(240px, calc(100vw - 24px)); padding: 6px; display: grid; gap: 5px; background: #fff; border: 1px solid #c9d1ca; border-radius: 14px; box-shadow: 0 12px 30px #17322530; max-height: 220px; overflow-y: auto; }
+.board-action-options .button { display: grid; gap: 4px; text-align: left; white-space: normal; }
+.board-action-options small { color: #65766b; font-size: .73rem; font-weight: 500; }
+.board-action-menu summary:focus-visible { outline: 3px solid #75a389; outline-offset: 2px; }
+.board-message-action { display: flex; align-items: center; gap: 7px; position: relative; }
+.board-unread-count { position: absolute; top: -6px; right: -5px; background: #c33c3c; color: white; padding: 2px 6px; border-radius: 999px; font-size: .7rem; }
+.board-app-status:empty { display: none; }
+.board-app-status { padding-top: 0; min-height: 0; }
+.board-app-status.error { color: #a63d3d; }
 .board-viewport { position: relative; flex: 1; min-height: 180px; overflow: hidden; background: #dbe5db; background-image: radial-gradient(#819d872e 1px, transparent 1px); background-size: 20px 20px; touch-action: none; cursor: grab; user-select: none; overscroll-behavior: contain; }
 .board-viewport.is-dragging { cursor: grabbing; }
 .board-viewport:focus-visible { outline: 3px solid #276749; outline-offset: -3px; }
@@ -91,11 +113,33 @@
 .board-card-dialog[data-type="community"] .board-card { border-color: #357e9c; background: #fbfcf2; }
 .board-card-dialog[data-type="community"] .board-card-symbol { color: #357e9c; }
 .board-controls button:disabled { opacity: .45; cursor: default; }
+/* Held jail cards reuse the bank's action-card and modal layout. */
+.held-jail-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; align-content: start; min-width: 0; background: #fffaf0; border-color: #d9c49d; }
+.held-jail-card strong { grid-column: 1 / -1; grid-row: 2; margin: 0; line-height: 1.3; overflow-wrap: anywhere; }
+.held-jail-card #heldJailCardHint { grid-column: 1 / -1; grid-row: 3; color: #635843; overflow-wrap: anywhere; }
+.held-jail-card .held-jail-card-count { grid-column: 2; grid-row: 1; align-self: center; display: grid; place-items: center; min-width: 26px; min-height: 26px; padding: 3px 7px; border-radius: 999px; background: #725224; color: #fff; font-size: .8rem; font-weight: 900; }
+.held-jail-card .held-jail-card-count:empty { visibility: hidden; }
+.held-jail-card .held-jail-card-art { grid-column: 1; grid-row: 1; position: relative; isolation: isolate; width: 34px; height: 24px; margin: 4px 0 5px; border: 1px solid #946e34; border-radius: 4px; background: repeating-linear-gradient(90deg, transparent 0 5px, #946e34 5px 7px, transparent 7px 10px) center / 20px 12px no-repeat, #fff3d5; box-shadow: 0 2px 3px #72522420; }
+.held-jail-card-art::before, .held-jail-card-art::after { content: ""; position: absolute; inset: -1px; z-index: -1; border: 1px solid #b99761; border-radius: inherit; background: #f4e4c3; opacity: 0; }
+.held-jail-card.is-stacked .held-jail-card-art::before { opacity: 1; transform: translate(3px, -3px) rotate(6deg); }
+.held-jail-card:hover { border-color: #946e34; }
+.held-jail-card:focus-visible { outline: 3px solid #276749; outline-offset: 3px; }
+#heldJailCardsDialog .modal-card { max-height: calc(100dvh - 48px); overflow-y: auto; }
+#heldJailCardsDialog .section-heading { align-items: flex-start; }
+#heldJailCardsTitle { min-width: 0; overflow-wrap: anywhere; }
+#heldJailCardsDialog .icon-button { flex-shrink: 0; min-width: 44px; min-height: 44px; }
+#heldJailCardsHelp { margin: 0; line-height: 1.5; }
+#heldJailCardsList { display: grid; gap: 10px; min-width: 0; }
+#heldJailCardsList > * { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 12px; border: 1px solid #d9c49d; border-radius: 12px; background: #fffaf0; overflow-wrap: anywhere; }
+#heldJailCardsList .button { min-height: 44px; white-space: normal; }
 @media (max-width: 600px) {
   .board-dialog { width: 100vw; height: 100dvh; border-radius: 0; margin: 0; }
   .board-toolbar { padding: max(10px, env(safe-area-inset-top)) 12px 4px; }
   .board-toolbar p { font-size: .67rem; }
   .board-controls { padding: 6px 12px 10px; gap: 6px; }
+  .board-game-actions { padding: 0 12px 10px; gap: 6px; }
+  .board-game-actions .button { padding: 8px 10px; min-height: 36px; font-size: .72rem; }
+  .board-player-balance { flex: 1 1 100%; margin-left: 0; justify-content: space-between; padding: 6px 10px; }
   .board-controls .button { padding: 8px 10px; font-size: .72rem; min-height: 36px; }
   .board-follow { margin-left: 0; }
   .board-status { padding: 8px 12px max(8px, env(safe-area-inset-bottom)); }

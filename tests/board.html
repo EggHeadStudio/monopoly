@@ -11,7 +11,7 @@
   <p>Running board checks with an in-memory Firestore substitute…</p>
   <script type="module">
     // No Firebase SDK, credentials or network writes are used by this test page.
-    import { createBoardController, BOARD_SPACES, playerBoardPosition, boardGridPosition } from "../board.js";
+    import { createBoardController, BOARD_SPACES, playerBoardPosition, boardGridPosition, cardMovementRoute, CHANCE_CARDS, COMMUNITY_CHEST_CARDS } from "../board.js";
     const results = [];
     const assert = (condition, message) => { if (!condition) throw new Error(message); results.push(message); };
     const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -35,29 +35,43 @@
       report.style.cssText = "white-space:pre-wrap;padding:16px;background:#fff;position:relative;z-index:10";
       document.body.prepend(report);
       const source = (await (await fetch("../app.js")).text()).replace(/^import[\s\S]*?;\s*/gm, "");
-      let storedGame = {}, storedPlayer = {}, writes = 0, failCommit = false;
+      let storedGame = {}, storedPlayer = {}, writes = 0, failCommit = false, retryGame = null;
+      let confirmed = null, allowConfirm = false;
+      const storedTransactions = new Map();
+      const missingPlayers = new Set();
       const sdk = {
         initializeApp: () => ({}), getAuth: () => ({}), getFirestore: () => ({}),
         onAuthStateChanged: () => {}, signInAnonymously: async () => {},
-        doc: (...args) => ({ kind: args.length === 3 ? "game" : "player" }),
-        collection: () => ({}), getDoc: () => {}, getDocs: () => {}, setDoc: () => {}, addDoc: () => {},
+        doc: (...args) => args[0]?.kind === "collection"
+          ? { kind: "transaction", id: args[1] || `transaction-${storedTransactions.size}` }
+          : { kind: args.length === 3 ? "game" : "player", id: args[args.length - 1] },
+        collection: (...args) => ({ kind: "collection", path: args.slice(1) }),
+        getDoc: () => {}, getDocs: () => {}, setDoc: () => {}, addDoc: () => {},
         onSnapshot: () => () => {}, query: () => ({}), orderBy: () => ({}), limit: () => ({}),
         serverTimestamp: () => 0, writeBatch: () => ({}),
         runTransaction: async (_db, callback) => {
           if (failCommit) throw new Error("Simulated network failure");
           const queued = [];
           const result = await callback({
-            get: async ref => ({ exists: () => true, data: () => ref.kind === "game" ? storedGame : storedPlayer }),
-            update: (ref, patch) => queued.push([ref, patch])
+            get: async ref => ({ exists: () => ref.kind === "game" || !missingPlayers.has(ref.id), data: () => ref.kind === "game" ? storedGame : storedPlayer }),
+            update: (ref, patch) => queued.push([ref, patch]),
+            set: (ref, data) => queued.push([ref, data])
           });
+          if (retryGame) {
+            storedGame = { ...storedGame, ...retryGame };
+            retryGame = null;
+            return sdk.runTransaction(_db, callback);
+          }
           for (const [ref, patch] of queued) {
             if (ref.kind === "game") storedGame = { ...storedGame, ...patch };
-            else storedPlayer = { ...storedPlayer, ...patch };
+            else if (ref.kind === "player") storedPlayer = { ...storedPlayer, ...patch };
+            else if (ref.kind === "transaction") storedTransactions.set(ref.id, patch);
             writes++;
           }
           return result;
         },
-        firebaseConfig: {}, createBoardController, BOARD_SPACES, playerBoardPosition,
+        firebaseConfig: {}, createBoardController, BOARD_SPACES, playerBoardPosition, cardMovementRoute, CHANCE_CARDS, COMMUNITY_CHEST_CARDS,
+        confirm: message => { confirmed = message; return allowConfirm; },
         localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} }
       };
       // Execute the actual app against the substitute, not a copy of its movement logic.
@@ -67,9 +81,15 @@
         state() { return { players, gameData, diceRollInProgress, boardSessionGeneration }; },
         setLanguage, openDiceDialog, translations, t, setDiceLabels,
         openMoneyDialog, closeMoneyDialog, openPropertySaleDialog, closePropertySaleDialog,
-        openPrivateMessages,
-        setMessages(messages) { privateMessages = messages; }
+        openPrivateMessages, renderProperties, renderHeldJailCards, useJailReleaseCard,
+        observeCardDraws, displayCardDraw,
+        resetCardEvents() { seenCardDraws = new Set(); cardSnapshotInitialized = false; },
+        setMessages(messages) { privateMessages = messages; boardController.sync(); }
       };`)(...Object.values(sdk));
+      const chanceDraw = test.board.drawChanceCard, communityDraw = test.board.drawCommunityChestCard;
+      // Existing general movement tests deliberately draw an ordinary card.
+      test.board.drawChanceCard = holders => chanceDraw(holders, 7);
+      test.board.drawCommunityChestCard = holders => communityDraw(holders, 1);
       const state = {
         gameId: "BOARDTEST", currentPlayerId: "p0", language: "en",
         gameData: { currentTurnPlayerId: "p0", turnNumber: 1, freeParkingPot: 350 },
@@ -96,6 +116,52 @@
       assert(playerBoardPosition({}) === 0 && playerBoardPosition({ position: -1 }) === 0 && playerBoardPosition({ position: 39 }) === 39, "Legacy and invalid positions are safely normalized");
       test.board.openBoardDialog();
       await wait(100);
+      const viewport = document.getElementById("boardViewport"), world = document.getElementById("boardWorld");
+      const boardDialog = document.getElementById("boardDialog"), follow = document.getElementById("boardFollow");
+      const boardFitsViewport = () => {
+        const bounds = world.getBoundingClientRect(), view = viewport.getBoundingClientRect();
+        return bounds.width > 0 && bounds.height > 0 && bounds.left >= view.left - 1 && bounds.top >= view.top - 1
+          && bounds.right <= view.right + 1 && bounds.bottom <= view.bottom + 1;
+      };
+      assert(boardFitsViewport(), "Initial board open fits the full board inside the viewport");
+      assert(!follow.checked, "Follow my token is unchecked by default");
+      assert([...document.querySelectorAll('.board-zoom-controls button')].every(button => button.getClientRects().length === 0), "Zoom minus, percentage and plus controls are hidden from view");
+      assert(document.getElementById("boardBalancePlayer").textContent === "Player 1" && document.getElementById("boardBalanceValue").textContent === "1,500", "Board toolbar shows the selected player's name and current balance");
+      state.players[0].balance = 1825;
+      test.setState(state);
+      assert(document.getElementById("boardBalanceValue").textContent === "1,825", "Board balance updates through the existing live-state synchronization");
+      state.players[1].balance = 300;
+      state.currentPlayerId = "p1";
+      test.setState(state);
+      assert(document.getElementById("boardBalancePlayer").textContent === "Player 2" && document.getElementById("boardBalanceValue").textContent === "300", "Board balance follows the selected player rather than the active turn player");
+      state.currentPlayerId = "p0"; state.players[0].balance = 1500; state.players[1].balance = 1500;
+      test.setState(state);
+      const propertyCamera = world.getAttribute("style"), propertyWrites = writes;
+      document.getElementById("boardPropertiesBtn").click();
+      await wait(30);
+      assert(document.getElementById("propertyDialog").open && boardDialog.open && document.getElementById("propertyList").textContent.includes("Korkeavuori Street"), "Board Properties shortcut opens the existing buying/auction/owned property view over the board");
+      document.getElementById("closePropertyDialog").click();
+      await wait(30);
+      assert(boardDialog.open && world.getAttribute("style") === propertyCamera && writes === propertyWrites, "Closing Properties preserves board camera and performs no Firebase writes");
+      for (const locale of ["fi", "en"]) {
+        test.setLanguage(locale);
+        assert(document.getElementById("boardPropertiesBtn").textContent === test.t("properties") && document.querySelector('.board-player-balance [data-i18n="yourBalance"]').textContent === test.t("yourBalance"), `${locale}: board properties and balance labels are translated`);
+      }
+      const balanceBounds = document.querySelector('.board-player-balance').getBoundingClientRect();
+      const toolbarBounds = boardDialog.getBoundingClientRect();
+      assert(balanceBounds.left >= toolbarBounds.left && balanceBounds.right <= toolbarBounds.right, "Board balance fits inside the dialog on desktop and narrow layouts");
+      const initialZoom = Number(world.style.getPropertyValue("--zoom"));
+      document.getElementById("boardZoomIn").click();
+      assert(Number(world.style.getPropertyValue("--zoom")) > initialZoom, "Board is zoomed in before reopening");
+      follow.click();
+      assert(follow.checked, "User can manually enable token following");
+      document.getElementById("closeBoardBtn").click();
+      await wait(30);
+      test.board.openBoardDialog();
+      await wait(100);
+      assert(boardFitsViewport(), "Reopening a zoomed board fits the full board again");
+      assert(follow.checked, "Reopening preserves manually enabled follow instead of resetting its default");
+      follow.click(); // Keep the original movement/camera checks independent of following.
       assert(document.querySelectorAll(".board-space").length === 40, "Renderer creates 40 spaces once");
       assert(document.querySelectorAll(".board-player-token").length === 8, "All eight tokens visible at GO");
       assert(new Set([...document.querySelectorAll(".board-player-token")].map(token => token.style.transform)).size === 8, "Shared-space tokens have distinct offsets");
@@ -118,6 +184,12 @@
       assert(firstSpace.classList.contains("is-mortgaged") && !firstSpace.querySelector(".board-mortgage").hidden, "Mortgage visual updates");
       assert(!firstSpace.querySelector(".board-owner").hidden && firstSpace.querySelector(".board-owner").style.backgroundColor === "rgb(214, 69, 69)", "Owner color is independent of group strip");
       assert(document.getElementById("boardPotValue").textContent === "720", "Shared pot updates");
+      assert(document.getElementById("boardClaimPotValue").textContent === "720" && !document.getElementById("boardClaimPotBtn").disabled, "Toolbar claim amount updates live to 720 and enables claiming");
+      state.gameData.freeParkingPot = 0;
+      test.setState(state);
+      assert(document.getElementById("boardClaimPotValue").textContent === "0" && document.getElementById("boardClaimPotBtn").disabled, "Zero pot updates the toolbar amount and disables claiming");
+      state.gameData.freeParkingPot = 720;
+      test.setState(state);
       assert(document.querySelector(".board-player-token") === token && document.getElementById("board-space-1") === firstSpace, "Updates preserve token and space DOM nodes");
       for (let count = 0; count < 4; count++) {
         state.properties[0].houses = count;
@@ -155,6 +227,7 @@
         test.setLanguage(locale);
         assert(document.getElementById("boardCardText").textContent === boardText.CHANCE_CARDS[0].text[locale] && document.getElementById("boardCardTitle").textContent === boardLabels.chance, `${locale}: open card popup refreshes its language`);
         document.getElementById("closeBoardCard").click();
+        await wait(30);
       }
       test.openMoneyDialog("player");
       document.getElementById("recipientSelect").value = "p2";
@@ -175,7 +248,94 @@
       assert(document.getElementById("privateMessageList").textContent.includes(test.t("you")) && document.getElementById("privateMessageList").textContent.includes("Original user message") && document.getElementById("privateMessageText").value === "Unsent draft", "Message UI translates but user content and drafts are preserved");
       document.getElementById("closePrivateMessages").click();
       test.setLanguage("en");
-      const viewport = document.getElementById("boardViewport"), world = document.getElementById("boardWorld");
+      const claimMenu = document.getElementById("boardClaimMenu"), payMenu = document.getElementById("boardPayMenu");
+      const openMenu = async menu => {
+        if (!menu.open) menu.querySelector("summary").click();
+        await wait(30); // Let the native, queued details toggle event run.
+      };
+      const menusClosed = () => !claimMenu.open && !payMenu.open;
+      await openMenu(claimMenu);
+      assert(claimMenu.open && !payMenu.open, "Native Claim summary opens its details menu");
+      await openMenu(payMenu);
+      assert(payMenu.open && !claimMenu.open, "Native Pay toggle closes Claim");
+      await openMenu(claimMenu);
+      assert(claimMenu.open && !payMenu.open, "Native Claim toggle closes Pay");
+      document.getElementById("boardTitle").dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "mouse" }));
+      assert(menusClosed() && boardDialog.open, "Outside pointer closes board action menus without closing the board");
+      for (const menu of [claimMenu, payMenu]) {
+        await openMenu(menu);
+        menu.querySelector("summary").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+        assert(menusClosed() && boardDialog.open && document.activeElement === menu.querySelector("summary"), `${menu.id}: Escape closes the menu, preserves the board and focuses its summary`);
+      }
+      const actionButton = action => document.querySelector(`[data-board-action="${action}"]`);
+      const toolbarWrites = writes;
+      for (const [action, titleKey] of [["bank-receive", "receiveFromBank"], ["player", "payAnotherPlayer"], ["bank-pay", "payBank"], ["free-parking-pay", "payFreeParking"]]) {
+        await openMenu(action === "bank-receive" ? claimMenu : payMenu);
+        const camera = world.style.cssText;
+        actionButton(action).click();
+        await wait(30);
+        assert(document.getElementById("moneyDialog").open && document.getElementById("moneyDialogTitle").textContent === test.t(titleKey), `${action}: toolbar opens the existing money dialog with the correct title`);
+        assert(document.getElementById("recipientWrap").classList.contains("hidden") === (action !== "player"), `${action}: recipient selection is visible only for player payments`);
+        assert(menusClosed() && boardDialog.open, `${action}: selection closes menus and keeps the board underneath`);
+        document.getElementById("closeMoneyDialog").click();
+        await wait(30);
+        assert(!document.getElementById("moneyDialog").open && boardDialog.open && world.style.cssText === camera, `${action}: closing money dialog preserves the board camera`);
+      }
+      test.setMessages([
+        { id: "toolbar-in-1", senderId: "p1", recipientId: "p0", text: "Unread one" },
+        { id: "toolbar-in-2", senderId: "p2", recipientId: "p0", text: "Unread two" },
+        { id: "toolbar-out", senderId: "p0", recipientId: "p1", text: "Outgoing" }
+      ]);
+      const badge = document.getElementById("boardMessageBadge"), messageCamera = world.style.cssText;
+      assert(badge.textContent === "2" && !badge.classList.contains("hidden"), "Board unread badge counts incoming messages, not outgoing ones");
+      await openMenu(payMenu);
+      actionButton("messages").click();
+      await wait(30);
+      assert(document.getElementById("privateMessagesDialog").open && boardDialog.open && menusClosed(), "Messages toolbar opens the existing dialog and closes menus while preserving the board");
+      // The storage stub intentionally discards read IDs; do not require badge clearing.
+      document.getElementById("closePrivateMessages").click();
+      await wait(30);
+      assert(!document.getElementById("privateMessagesDialog").open && boardDialog.open && world.style.cssText === messageCamera, "Closing messages preserves the board camera");
+      test.setMessages([]);
+      assert(writes === toolbarWrites, "Opening and closing toolbar banking/message dialogs performs no writes");
+
+      const savedGame = { ...state.gameData }, savedPlayers = state.players.map(player => ({ ...player }));
+      const savedStoredGame = storedGame, savedStoredPlayer = storedPlayer;
+      try {
+        storedGame = { ...savedGame };
+        storedPlayer = { ...state.players[0] };
+        const beforeEndTurn = writes, turnCamera = world.style.cssText;
+        await openMenu(claimMenu);
+        actionButton("end-turn").click();
+        await wait(30);
+        assert(storedGame.currentTurnPlayerId === "p1" && writes === beforeEndTurn + 1, "Toolbar End turn advances to p1 with exactly one game write");
+        assert(boardDialog.open && menusClosed() && world.style.cssText === turnCamera, "Toolbar End turn closes menus and preserves the board camera");
+        state.gameData = { ...savedGame }; storedGame = { ...savedGame };
+        test.setState(state); // Restore p0's turn before testing the existing pot transaction.
+        const beforeClaim = writes, claimCamera = world.style.cssText, beforeTransactions = storedTransactions.size;
+        await openMenu(claimMenu);
+        actionButton("claim-pot").click();
+        await wait(30);
+        assert(confirmed === test.t("claimFreeParkingConfirm").replace("{amount}", "720") && writes === beforeClaim && storedGame.freeParkingPot === 720 && storedPlayer.balance === 1500, "Cancelling toolbar pot confirmation performs no writes or money changes");
+        assert(boardDialog.open && menusClosed() && world.style.cssText === claimCamera, "Cancelled pot claim closes menus and preserves the board camera");
+        allowConfirm = true;
+        await openMenu(claimMenu);
+        actionButton("claim-pot").click();
+        await wait(30);
+        assert(writes === beforeClaim + 3 && storedGame.freeParkingPot === 0 && storedPlayer.balance === 2220, "Confirmed toolbar pot claim writes game, player and transaction once, paying 720");
+        const payout = [...storedTransactions.values()].at(-1);
+        assert(storedTransactions.size === beforeTransactions + 1 && payout.type === "free-parking-claim" && payout.fromId === "free-parking" && payout.toId === "p0" && payout.amount === 720, "Pot claim stores a separate payout transaction without overwriting player data");
+        // Simulate the subscribed snapshots explicitly; the isolated SDK has no listeners.
+        state.gameData = { ...storedGame }; state.players[0] = { ...storedPlayer }; test.setState(state);
+        assert(document.getElementById("boardClaimPotValue").textContent === "0" && actionButton("claim-pot").disabled, "Committed zero-pot snapshot disables the toolbar claim action");
+        assert(boardDialog.open && menusClosed() && world.style.cssText === claimCamera, "Confirmed pot claim preserves the board camera");
+      } finally {
+        allowConfirm = false; confirmed = null;
+        state.gameData = savedGame; state.players = savedPlayers;
+        storedGame = savedStoredGame; storedPlayer = savedStoredPlayer;
+        storedTransactions.clear();
+        test.setState(state); // Original movement checks still expect p0, balance 1500 and pot 720.
+      }
       const oldZoom = world.style.getPropertyValue("--zoom");
       viewport.dispatchEvent(new WheelEvent("wheel", { deltaY: -200, bubbles: true, cancelable: true }));
       assert(world.style.getPropertyValue("--zoom") === oldZoom, "Normal wheel does not zoom");
@@ -237,15 +397,21 @@
       rejected = false;
       try { await test.move(wrongTurn, 1); } catch { rejected = true; test.board.finishMovement("p0"); }
       assert(rejected && storedPlayer.position === 5, "Changed turn prevents movement commit");
+      const communityWrites = writes;
       await test.move(configureMove(38), 4);
       assert(storedPlayer.position === 2 && storedPlayer.balance === 1500, "GO wrap-around does not pay salary");
+      assert(writes === communityWrites + 2 && storedGame.freeParkingPot === 720, "Ordinary Community draw writes game/player only and leaves money unchanged");
       assert(document.getElementById("boardCardDialog").open && storedPlayer.boardLastCard.type === "community", "Community landing draws one informational card");
       document.getElementById("closeBoardCard").click();
+      await wait(30);
       test.board.sync(); test.board.sync();
       assert(!document.getElementById("boardCardDialog").open, "Rerender does not draw another card");
+      const chanceWrites = writes;
       await test.move(configureMove(5, 10), 2);
+      assert(writes === chanceWrites + 2 && storedPlayer.balance === 1500 && storedGame.freeParkingPot === 720, "Ordinary Chance dividend writes game/player only and leaves money unchanged");
       assert(document.getElementById("boardCardDialog").open && storedPlayer.boardLastCard.type === "chance", "Chance landing draws an informational card");
       document.getElementById("closeBoardCard").click();
+      await wait(30);
       configureMove(0, 20);
       const beforeStarting = writes;
       test.openDiceDialog();
@@ -265,14 +431,17 @@
       const duplicate = test.roll(false);
       await test.endTurn();
       assert(test.state().diceRollInProgress && writes === beforeNormal, "Dice lock blocks duplicate roll and ending turn during movement");
+      assert(document.getElementById("boardEndTurnBtn").disabled, "Toolbar End turn is disabled during a normal dice roll");
       await wait(800);
       assert(document.getElementById("diceDialog").open && document.querySelectorAll("#dicePair .die-face:not(.rolling)").length === 2 && token.dataset.position === "18", "Settled dice remain visible before movement begins");
       await wait(800);
       assert(document.getElementById("diceDialog").open && token.dataset.position === "18" && writes === beforeNormal, "One-second dice preview does not move or write the player");
       await normal; await duplicate;
       const rolledLanding = (18 + storedPlayer.boardLastDiceTotal) % 40;
-      assert(writes === beforeNormal + 1 && storedPlayer.position === (BOARD_SPACES[rolledLanding].type === "goToJail" ? 10 : rolledLanding), "Normal dice flow animates and saves exactly one movement");
+      const rolledCard = ["chance", "community"].includes(BOARD_SPACES[rolledLanding].type);
+      assert(writes === beforeNormal + (rolledCard ? 2 : 1) && storedPlayer.position === (BOARD_SPACES[rolledLanding].type === "goToJail" ? 10 : rolledLanding), "Normal dice flow saves one final player position and a shared game event only when drawing a card");
       if (document.getElementById("boardCardDialog").open) document.getElementById("boardCardDialog").close();
+      await wait(30);
       const cancellation = test.board.animatePlayerMovement("p0", 0, 1);
       await wait(50);
       test.board.reset();
@@ -326,8 +495,237 @@
       assert(!document.getElementById("boardDialog").open && ownerDetails.open, "Owned board property opens its owner's expanded player list");
       assert(ownerDetails.querySelector('[data-owned-property="owned-p1"]').classList.contains("board-property-highlight") && ownerDetails.textContent.includes("90"), "Selected owned property is highlighted with its existing rent details");
       assert(document.getElementById("currentPlayerName").textContent !== "Player 2", "Owner shortcut does not switch the selected player");
+      state.properties = [
+        { id: "late-blue", presetId: "Erottaja", ownerId: "p0" },
+        { id: "late-brown-2", presetId: "Kasarmikatu", ownerId: "p0" },
+        { id: "late-green", presetId: "Eira", ownerId: "p0" },
+        { id: "late-brown-1", presetId: "Korkeavuorenkatu", ownerId: "p0" }
+      ];
+      test.setState(state); test.renderProperties();
+      assert(JSON.stringify([...document.querySelectorAll('#propertyList [data-details-property]')].map(button => button.dataset.detailsProperty)) === JSON.stringify(["late-brown-1", "late-brown-2", "late-green", "late-blue"]), "Properties / Tontit sorts by preset color group, not purchase order");
+
+      // Force the two jail-release cards, still using the real exclusion selector.
+      test.board.drawChanceCard = holders => chanceDraw(holders, 8);
+      test.board.drawCommunityChestCard = holders => communityDraw(holders, 4);
+      state.gameData.heldJailCards = {}; state.gameData.jailCardVersion = 0;
+      await test.move(configureMove(5, 50), 2);
+      assert(storedGame.heldJailCards.chance_09 === "p0", "Chance jail-release card is awarded atomically to the rolling player");
+      assert(!document.getElementById("heldJailCardBtn").classList.contains("hidden") && document.getElementById("heldJailCardCount").textContent === "1", "One held card appears beside Board");
+      assert(document.querySelector('#boardCardDialog [data-board-label="informational"]').textContent === test.t("jailCardShared"), "Retainable card popup confirms ownership instead of manual-only effects");
+      document.getElementById("closeBoardCard").click();
+      await wait(30);
+      state.gameData = { ...storedGame };
+      await test.move(configureMove(0, 51), 2);
+      assert(storedGame.heldJailCards.community_05 === "p0" && storedGame.heldJailCards.chance_09 === "p0", "One player can hold cards from both decks");
+      assert(document.getElementById("heldJailCardBtn").classList.contains("is-stacked") && document.getElementById("heldJailCardCount").textContent === "2", "Two held cards display a stacked button and count");
+      document.getElementById("closeBoardCard").click();
+      await wait(30);
+      assert(Array.from({ length: 32 }, (_, seed) => chanceDraw(storedGame.heldJailCards, seed)).every(card => card.id !== "chance_09") && Array.from({ length: 32 }, (_, seed) => communityDraw(storedGame.heldJailCards, seed)).every(card => card.id !== "community_05"), "Held jail-release cards are excluded from both random draw pools");
+      state.gameData = { ...storedGame };
+      configureMove(7, 52);
+      await test.useJailReleaseCard("chance_09");
+      assert(storedGame.heldJailCards.chance_09 === "p0", "Card cannot be spent outside Jail / Just Visiting");
+      configureMove(10, 53);
+      const inventoryWrites = writes;
+      const firstUse = test.useJailReleaseCard("chance_09");
+      await test.useJailReleaseCard("chance_09");
+      await firstUse;
+      assert(!storedGame.heldJailCards.chance_09 && storedGame.heldJailCards.community_05 === "p0" && writes === inventoryWrites + 1, "Using one card returns only that card and blocks duplicate use");
+      assert(storedPlayer.position === 10 && storedPlayer.balance === 1500 && storedGame.freeParkingPot === 720, "Card use keeps token, money and pot unchanged");
+      assert(chanceDraw(storedGame.heldJailCards, 8).id === "chance_09", "Used card is available to draw from its original deck again");
+      assert(!document.getElementById("heldJailCardBtn").classList.contains("is-stacked") && document.getElementById("heldJailCardCount").textContent === "1", "Using one of two cards removes the stacked state");
+      await test.useJailReleaseCard("community_05");
+      assert(document.getElementById("heldJailCardBtn").classList.contains("hidden") && !storedGame.heldJailCards.community_05, "Using last card hides inventory and returns it to Community Chest");
+      state.gameData = { ...storedGame };
+      configureMove(5, 54);
+      retryGame = { heldJailCards: { chance_09: "p1" }, jailCardVersion: Number(storedGame.jailCardVersion || 0) + 1 };
+      await test.move({ gameId: state.gameId, playerId: "p0", from: 5, version: 54, turn: 1, rollId: "race-card", session: test.state().boardSessionGeneration }, 2);
+      assert(storedGame.heldJailCards.chance_09 === "p1" && storedPlayer.boardLastCard.id !== "chance_09", "Transaction retry excludes a card claimed by another client");
+      document.getElementById("closeBoardCard").click();
+      await wait(30);
+      state.gameData = { ...storedGame };
+      test.setState(state); test.renderHeldJailCards();
+      assert(document.getElementById("heldJailCardBtn").classList.contains("hidden"), "Another player's held card is not shown in your inventory");
+      state.currentPlayerId = "p1"; test.setState(state); test.renderHeldJailCards();
+      assert(!document.getElementById("heldJailCardBtn").classList.contains("hidden"), "Switching player displays that player's own inventory");
+      for (const locale of ["fi", "en"]) {
+        test.setLanguage(locale);
+        assert(document.querySelector('#heldJailCardBtn strong').textContent === test.t("jailFreeCard") && document.getElementById("heldJailCardsList").textContent.includes(test.t("chanceDeck")), `${locale}: held card controls are translated`);
+      }
+      state.currentPlayerId = "p0"; state.gameData = { ...storedGame }; test.setState(state);
+      const allPlayers = state.players;
+      state.players = state.players.filter(player => player.id !== "p1");
+      await test.move(configureMove(5, 55), 2);
+      assert(storedGame.heldJailCards.chance_09 === "p1" && storedPlayer.boardLastCard.id !== "chance_09", "Lagging local player snapshot cannot make another player's card drawable");
+      document.getElementById("closeBoardCard").click();
+      await wait(30);
+      state.gameData = { ...storedGame };
+      await test.move(configureMove(0, 56), 2);
+      document.getElementById("closeBoardCard").click();
+      await wait(30);
+      assert(storedGame.heldJailCards.community_05 === "p0" && storedGame.heldJailCards.chance_09 === "p1", "Claiming a card preserves holders missing from the local snapshot");
+      state.gameData = { ...storedGame }; configureMove(10, 57);
+      failCommit = true;
+      await test.useJailReleaseCard("community_05");
+      failCommit = false;
+      assert(storedGame.heldJailCards.community_05 === "p0" && document.getElementById("heldJailCardCount").textContent === "1", "Failed card-use commit preserves the player's card");
+      await test.useJailReleaseCard("chance_09");
+      assert(storedGame.heldJailCards.chance_09 === "p1", "A player cannot consume another player's card");
+      await test.useJailReleaseCard("community_05");
+      assert(storedGame.heldJailCards.chance_09 === "p1" && !storedGame.heldJailCards.community_05, "Using a card preserves other holders missing from the local snapshot");
+      assert(!document.getElementById("boardDiceBtn").disabled, "Board dice button unlocks after card use completes");
+      missingPlayers.add("p1");
+      state.gameData = { ...storedGame };
+      await test.move(configureMove(5, 58), 2);
+      assert(storedGame.heldJailCards.chance_09 === "p0", "Card from a transactionally confirmed deleted player returns to the draw pool");
+      document.getElementById("closeBoardCard").click();
+      await wait(30);
+      missingPlayers.clear(); state.players = allPlayers; state.gameData = { ...storedGame }; test.setState(state);
       test.board.openBoardDialog();
       await wait(100);
+
+      // Expected destinations are independent of the route implementation and text.
+      const movementCases = [
+        ["chance", "chance_01", [39, 39, 39]],
+        ["chance", "chance_02", [0, 0, 0]],
+        ["chance", "chance_03", [24, 24, 24]],
+        ["chance", "chance_04", [11, 11, 11]],
+        ["chance", "chance_05", [15, 25, 5]],
+        ["chance", "chance_06", [15, 25, 5]],
+        ["chance", "chance_07", [12, 28, 12]],
+        ["chance", "chance_10", [4, 19, 33]],
+        ["chance", "chance_11", [10, 10, 10]],
+        ["chance", "chance_14", [5, 5, 5]],
+        ["community", "community_01", [0, 0, 0]],
+        ["community", "community_06", [10, 10, 10]]
+      ];
+      const cardById = (type, id) => (type === "chance" ? CHANCE_CARDS : COMMUNITY_CHEST_CARDS).find(card => card.id === id);
+      const movementIds = [...CHANCE_CARDS, ...COMMUNITY_CHEST_CARDS].filter(card => card.movement).map(card => card.id).sort();
+      assert(movementIds.length === 12 && JSON.stringify(movementIds) === JSON.stringify(movementCases.map(([, id]) => id).sort()), "All 12 movement metadata cards have explicit regression targets");
+      for (const [type, id, destinations] of movementCases) {
+        const card = cardById(type, id);
+        for (const [index, from] of [7, 22, 36].entries()) {
+          const destination = destinations[index];
+          const direct = id === "chance_11" || id === "community_06";
+          const steps = id === "chance_10" ? -3 : (destination - from + 40) % 40;
+          assert(JSON.stringify(cardMovementRoute(card, from)) === JSON.stringify({ from, destination, direct, steps }), `${id}: route from ${from} reaches ${destination} with correct direction and direct-jail flag`);
+        }
+      }
+      assert(cardMovementRoute(cardById("chance", "chance_05"), 36).steps === 9 && cardMovementRoute(cardById("chance", "chance_07"), 36).steps === 16, "Nearest station 36→5 and utility 36→12 wrap forward through GO");
+      assert([...CHANCE_CARDS, ...COMMUNITY_CHEST_CARDS].filter(card => !card.movement).every(card => [7, 22, 36].every(from => cardMovementRoute(card, from) === null)), "Money-only and held cards return no movement route");
+
+      const cardDialog = document.getElementById("boardCardDialog");
+      const acknowledgeCard = async () => {
+        document.getElementById("closeBoardCard").click();
+        await wait(30); // Native close events advance the independent popup queue.
+      };
+      const realAnimate = test.board.animatePlayerMovement;
+      const cardAnimations = [];
+      // Keep real dice movement and actual backward-three animation. Only long
+      // forward card routes are shortened; production route/transaction logic runs.
+      test.board.animatePlayerMovement = async (playerId, from, steps, direction) => {
+        if (direction !== undefined) cardAnimations.push({ from, steps, direction });
+        if (direction === undefined || direction < 0) return realAnimate(playerId, from, steps, direction);
+        const destination = ((from + steps * direction) % 40 + 40) % 40;
+        test.board.relocatePlayerOnBoard(playerId, destination);
+        return destination;
+      };
+      try {
+        for (const [index, [type, id, destinations]] of movementCases.entries()) {
+          test.board.drawChanceCard = holders => ({ type: "chance", ...CHANCE_CARDS.find(card => card.id === (type === "chance" ? id : "chance_08")) });
+          test.board.drawCommunityChestCard = holders => ({ type: "community", ...COMMUNITY_CHEST_CARDS.find(card => card.id === (type === "community" ? id : "community_02")) });
+          state.gameData = { ...storedGame }; // configureMove deliberately copies this snapshot.
+          const wrap = ["chance_05", "chance_06", "chance_07"].includes(id);
+          const from = type === "community" ? 0 : wrap ? 34 : 5;
+          const expected = type === "community" ? (id === "community_01" ? 0 : 10) : destinations[wrap ? 2 : 0];
+          const roll = configureMove(from, 91 + index), before = writes;
+          const money = storedPlayer.balance, pot = storedGame.freeParkingPot;
+          const holders = JSON.stringify(storedGame.heldJailCards);
+          const visited = [];
+          const currentToken = document.querySelector(".board-player-token.is-me");
+          const backwardObserver = new MutationObserver(() => visited.push(Number(currentToken.dataset.position)));
+          if (id === "chance_10") backwardObserver.observe(currentToken, { attributes: true, attributeFilter: ["data-position"] });
+          try { await test.move(roll, 2); } finally { backwardObserver.disconnect(); }
+          const event = storedGame.cardDrawEvents.at(-1);
+          assert(storedPlayer.position === expected && test.state().players.find(player => player.id === "p0").position === expected && currentToken.dataset.position === String(expected), `${id}: committed card movement updates stored, app and token positions to ${expected}`);
+          assert(writes === before + 2 && storedPlayer.boardMoveVersion === roll.version + 1 && storedPlayer.boardLastDiceTotal === 2 && storedPlayer.boardLastRollId === roll.rollId, `${id}: one game event and one final player write preserve roll metadata`);
+          assert(storedPlayer.balance === money && storedGame.freeParkingPot === pot && JSON.stringify(storedGame.heldJailCards) === holders, `${id}: card movement leaves manual money, pot and existing held-card ownership unchanged`);
+          assert(event.id === roll.rollId && event.playerId === "p0" && event.playerName === storedPlayer.name && JSON.stringify(event.cards) === JSON.stringify([{ id, type }]) && storedPlayer.boardLastCard.id === id && storedPlayer.boardLastCard.rollId === roll.rollId, `${id}: shared draw event identifies the drawer and exactly one card`);
+          assert(cardDialog.open && document.getElementById("boardCardText").textContent === cardById(type, id).text.en, `${id}: the committed card appears once`);
+          if (id === "chance_10") {
+            assert([7, 6, 5, 4].every(position => visited.includes(position)) && cardAnimations.some(route => route.from === 7 && route.steps === 3 && route.direction === -1), "Actual 5+2 Chance back-three animates 7→6→5→4 and stops at tax without another draw");
+          }
+          await acknowledgeCard();
+          const afterCommit = writes;
+          await test.move(roll, 2);
+          test.displayCardDraw(event);
+          test.board.sync();
+          await wait(30);
+          assert(writes === afterCommit && !cardDialog.open, `${id}: repeated roll, event and render neither write nor reopen the acknowledged card`);
+        }
+
+        test.board.drawChanceCard = holders => ({ type: "chance", ...CHANCE_CARDS.find(card => card.id === "chance_10") });
+        test.board.drawCommunityChestCard = holders => ({ type: "community", ...COMMUNITY_CHEST_CARDS.find(card => card.id === "community_02") });
+        state.gameData = { ...storedGame };
+        const chainRoll = configureMove(34, 110), chainWrites = writes;
+        await test.move(chainRoll, 2);
+        const chainEvent = storedGame.cardDrawEvents.at(-1);
+        assert(storedPlayer.position === 33 && test.state().players.find(player => player.id === "p0").position === 33 && document.querySelector(".board-player-token.is-me").dataset.position === "33", "34+2 Chance back-three lands on Community Chest 33 and bank error ends the chain");
+        assert(writes === chainWrites + 2 && storedPlayer.balance === 1500 && storedGame.freeParkingPot === 720 && storedPlayer.boardLastCard.id === "community_02", "Two-card chain uses only game/player writes, records the last card and changes no money");
+        assert(chainEvent.id === chainRoll.rollId && JSON.stringify(chainEvent.cards) === JSON.stringify([{ id: "chance_10", type: "chance" }, { id: "community_02", type: "community" }]), "One shared roll event contains both chained cards in draw order");
+        assert(cardDialog.open && cardDialog.dataset.type === "chance" && document.getElementById("boardCardText").textContent === cardById("chance", "chance_10").text.en, "Chained popup starts with Chance independently of the already committed final position");
+        const ackWrites = writes;
+        for (const locale of ["fi", "en"]) {
+          test.setLanguage(locale);
+          assert(document.getElementById("boardCardPlayer").textContent === test.t("cardDrawnBy").replace("{name}", chainEvent.playerName) && document.getElementById("closeBoardCard").textContent === test.t("acknowledge") && document.getElementById("boardCardText").textContent === cardById("chance", "chance_10").text[locale], `${locale}: shared drawer identity, acknowledgement and movement card text translate`);
+        }
+        test.displayCardDraw(chainEvent);
+        await acknowledgeCard();
+        assert(cardDialog.open && cardDialog.dataset.type === "community" && document.getElementById("boardCardText").textContent === cardById("community", "community_02").text.en, `Acknowledging first chained card advances to Community Chest exactly once (open=${cardDialog.open}, type=${cardDialog.dataset.type}, text=${document.getElementById("boardCardText").textContent})`);
+        await acknowledgeCard();
+        test.displayCardDraw(chainEvent);
+        await wait(30);
+        assert(!cardDialog.open && writes === ackWrites && storedPlayer.position === 33, "Acknowledging both cards drains the queue; duplicate event cannot replay, move or write");
+
+        test.resetCardEvents();
+        const remoteEvent = { id: "observer-new-111", playerId: "p1", playerName: "Remote drawer", cards: [{ id: "chance_08", type: "chance" }] };
+        const observerWrites = writes;
+        test.observeCardDraws([chainEvent]);
+        await wait(30);
+        assert(!cardDialog.open, "Observer initial snapshot establishes a baseline without showing old draws");
+        test.observeCardDraws([chainEvent, remoteEvent]);
+        assert(cardDialog.open && document.getElementById("boardCardPlayer").textContent === test.t("cardDrawnBy").replace("{name}", "Remote drawer") && document.getElementById("boardCardText").textContent === cardById("chance", "chance_08").text.en, "Observer displays a new other-player draw with the shared drawer name");
+        test.observeCardDraws([chainEvent, remoteEvent]);
+        test.displayCardDraw(remoteEvent);
+        await acknowledgeCard();
+        assert(!cardDialog.open, "Duplicate observer snapshots and direct display do not queue the same event twice");
+        test.observeCardDraws([chainEvent, remoteEvent]);
+        test.displayCardDraw(chainEvent);
+        await wait(30);
+        assert(!cardDialog.open && writes === observerWrites && storedPlayer.position === 33 && storedPlayer.balance === 1500 && storedGame.freeParkingPot === 720, "Observer/display and acknowledgement replay are read-only and never reshow baseline or acknowledged events");
+        test.resetCardEvents();
+        test.observeCardDraws([chainEvent], true);
+        const pendingEvent = { ...remoteEvent, id: "metadata-ack-event" };
+        test.observeCardDraws([chainEvent, pendingEvent], true);
+        assert(!cardDialog.open, "Pending writes establish the baseline but do not show uncommitted draws");
+        test.observeCardDraws([chainEvent, pendingEvent], false);
+        assert(cardDialog.open && document.getElementById("boardCardPlayer").textContent.includes("Remote drawer"), "Metadata-only commit acknowledgement reveals draws received after the pending initial snapshot");
+        await acknowledgeCard();
+        test.observeCardDraws([chainEvent, pendingEvent], false);
+        assert(!cardDialog.open, "Repeated metadata acknowledgement does not replay a card");
+      } finally {
+        test.board.animatePlayerMovement = realAnimate;
+        test.board.drawChanceCard = holders => chanceDraw(holders, 7);
+        test.board.drawCommunityChestCard = holders => communityDraw(holders, 1);
+      }
+      test.board.openBoardDialog();
+      await wait(100);
+      document.getElementById("boardPayMenu").open = true;
+      await wait(30);
+      const menuBounds = document.querySelector('#boardPayMenu .board-action-options').getBoundingClientRect();
+      const dialogBounds = document.getElementById("boardDialog").getBoundingClientRect();
+      assert(menuBounds.left >= dialogBounds.left && menuBounds.right <= dialogBounds.right, "Pay dropdown stays inside the board dialog even when action buttons wrap");
+      document.getElementById("boardPayMenu").open = false;
       report.textContent = `PASS — ${results.length} checks\n\n${results.map(result => `✓ ${result}`).join("\n")}\n\nClose the board to read results. This page uses isolated test data only.`;
       document.title = `PASS: ${results.length} board checks`;
       window.boardTest = { test, state, results };
