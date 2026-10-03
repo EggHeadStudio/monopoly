@@ -6,6 +6,7 @@
   <meta name="theme-color" content="#101820" />
   <title>Monopoly Bank</title>
   <link rel="stylesheet" href="style.css?v=20260927-8" />
+  <link rel="stylesheet" href="board.css?v=20261003-2" />
 </head>
 <body>
   <main class="shell">
@@ -28,7 +29,7 @@
         <div class="divider"><span data-i18n="or">or</span></div>
         <label>
           <span data-i18n="gameCode">Game code</span>
-          <input id="joinCodeInput" maxlength="32" autocomplete="off" placeholder="e.g. K7Q9F2MX" aria-describedby="gameCodeHelp" />
+          <input id="joinCodeInput" maxlength="32" autocomplete="off" placeholder="e.g. K7Q9F2MX" data-i18n-placeholder="gameCodePlaceholder" aria-describedby="gameCodeHelp" />
         </label>
         <p id="gameCodeHelp" class="muted compact-help" data-i18n="gameCodeLookupHelp">Enter the 8-character code to find a game. It will appear below.</p>
       </div>
@@ -87,6 +88,7 @@
         <button id="claimFreeParkingBtn" class="action-card"><strong data-i18n="claimFreeParking">Free Parking</strong><span><span data-i18n="claimPotPrefix">Claim pot:</span> <span id="freeParkingPot">0</span></span></button>
         <button id="privateMessagesBtn" class="action-card"><strong data-i18n="privateMessages">Private messages</strong><span data-i18n="privateMessagesCopy">Chat privately with a player</span><span id="privateMessageBadge" class="unread-badge hidden">0</span></button>
         <button id="diceRollBtn" class="action-card"><strong data-i18n="rollDice">Roll dice</strong><span data-i18n="rollDiceCopy">Roll two dice</span></button>
+        <button id="openBoardBtn" class="action-card"><strong data-board-label="board">Board</strong><span data-board-label="boardCopy">Explore the live game board</span></button>
       </div>
 
       <div class="card">
@@ -95,7 +97,7 @@
           <button id="backToLobbyBtn" class="text-button" data-i18n="switchPlayer">Switch player</button>
         </div>
         <div class="turn-controls">
-          <div id="turnStatus" class="turn-status" data-i18n="turnOrderNotStarted">Set player order in the lobby, then choose the first player to begin.</div>
+          <div id="turnStatus" class="turn-status">Set player order in the lobby, then choose the first player to begin.</div>
           <button id="endTurnBtn" class="button primary hidden" type="button" data-i18n="endTurn">End turn</button>
         </div>
         <div id="gamePlayers" class="player-list"></div>
@@ -110,6 +112,41 @@
       </div>
     </section>
   </main>
+
+  <!-- Lightweight live board; the existing bank actions remain separate. -->
+  <dialog id="boardDialog" class="board-dialog" aria-labelledby="boardTitle">
+    <div class="board-panel">
+      <div class="board-toolbar">
+        <div><h2 id="boardTitle" data-board-label="board">Board</h2><p id="boardHint" data-board-label="gestureHint">Ctrl + wheel to zoom · drag to pan · two fingers on touch</p></div>
+        <button id="closeBoardBtn" type="button" class="icon-button" data-board-aria="close" aria-label="Close">×</button>
+      </div>
+      <div class="board-controls">
+        <div class="board-zoom-controls">
+          <button id="boardZoomOut" class="button" type="button" data-board-aria="zoomOut" aria-label="Zoom out">−</button>
+          <button id="boardZoomReset" class="button" type="button" aria-label="100%">100%</button>
+          <button id="boardZoomIn" class="button" type="button" data-board-aria="zoomIn" aria-label="Zoom in">+</button>
+        </div>
+        <button id="boardCenterMe" class="button" type="button" data-board-label="centerMe">Center on me</button>
+        <button id="boardFit" class="button" type="button" data-board-label="fit">Show full board</button>
+        <button id="boardDiceBtn" class="button primary" type="button" data-board-label="rollDice">Roll dice</button>
+        <label class="board-follow"><input id="boardFollow" type="checkbox" checked /><span data-board-label="follow">Follow my token</span></label>
+      </div>
+      <div id="boardViewport" class="board-viewport" tabindex="0" aria-describedby="boardHint">
+        <div id="boardWorld" class="board-world"><div id="gameBoard" class="game-board" role="group" aria-label="Game board"></div></div>
+      </div>
+      <div id="boardMovementStatus" class="board-status" role="status" aria-live="polite"></div>
+    </div>
+  </dialog>
+
+  <dialog id="boardCardDialog" class="modal board-card-dialog" aria-labelledby="boardCardTitle">
+    <div class="modal-card board-card">
+      <div id="boardCardSymbol" class="board-card-symbol" aria-hidden="true"></div>
+      <h2 id="boardCardTitle"></h2>
+      <p id="boardCardText"></p>
+      <p class="muted" data-board-label="informational">Informational only — carry out any effects manually.</p>
+      <button id="closeBoardCard" class="button primary" type="button" data-board-label="close">Close</button>
+    </div>
+  </dialog>
 
   <dialog id="moneyDialog" class="modal">
     <form id="moneyForm" class="modal-card">
@@ -160,7 +197,7 @@
   <dialog id="propertySaleDialog" class="modal">
     <form id="propertySaleForm" class="modal-card">
       <div class="section-heading">
-        <h2 id="propertySaleTitle" data-i18n="sellProperty">Sell property</h2>
+        <h2 id="propertySaleTitle">Sell property</h2>
         <button id="closePropertySaleDialog" type="button" class="icon-button" aria-label="Close" data-i18n-aria-label="close">×</button>
       </div>
       <label><span data-i18n="buyer">Buyer</span>
@@ -286,6 +323,6 @@
     </form>
   </dialog>
 
-  <script type="module" src="app.js?v=20260927-10"></script>
+  <script type="module" src="app.js?v=20261003-4"></script>
 </body>
 </html>

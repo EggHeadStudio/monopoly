@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Board checks — isolated data</title>
+  <link rel="stylesheet" href="../style.css" />
+  <link rel="stylesheet" href="../board.css" />
+</head>
+<body>
+  <p>Running board checks with an in-memory Firestore substitute…</p>
+  <script type="module">
+    // No Firebase SDK, credentials or network writes are used by this test page.
+    import { createBoardController, BOARD_SPACES, playerBoardPosition, boardGridPosition } from "../board.js";
+    const results = [];
+    const assert = (condition, message) => { if (!condition) throw new Error(message); results.push(message); };
+    const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+    // Opt-in deterministic scheduling for headless --virtual-time-budget runs.
+    // Interactive runs keep the browser's real animation frames and transitions.
+    if (new URLSearchParams(location.search).has("headless")) {
+      window.requestAnimationFrame = callback => setTimeout(() => callback(performance.now()), 16);
+    }
+    try {
+      const markup = await (await fetch("../index.html")).text();
+      const parsed = new DOMParser().parseFromString(markup, "text/html");
+      parsed.querySelectorAll("script").forEach(script => script.remove());
+      document.body.replaceChildren(...parsed.body.childNodes);
+      if (new URLSearchParams(location.search).has("headless")) {
+        const style = document.createElement("style");
+        style.textContent = ".board-player-token, .board-world { transition: none !important; }";
+        document.head.append(style);
+      }
+      const report = document.createElement("pre");
+      report.id = "boardTestResults";
+      report.style.cssText = "white-space:pre-wrap;padding:16px;background:#fff;position:relative;z-index:10";
+      document.body.prepend(report);
+      const source = (await (await fetch("../app.js")).text()).replace(/^import[\s\S]*?;\s*/gm, "");
+      let storedGame = {}, storedPlayer = {}, writes = 0, failCommit = false;
+      const sdk = {
+        initializeApp: () => ({}), getAuth: () => ({}), getFirestore: () => ({}),
+        onAuthStateChanged: () => {}, signInAnonymously: async () => {},
+        doc: (...args) => ({ kind: args.length === 3 ? "game" : "player" }),
+        collection: () => ({}), getDoc: () => {}, getDocs: () => {}, setDoc: () => {}, addDoc: () => {},
+        onSnapshot: () => () => {}, query: () => ({}), orderBy: () => ({}), limit: () => ({}),
+        serverTimestamp: () => 0, writeBatch: () => ({}),
+        runTransaction: async (_db, callback) => {
+          if (failCommit) throw new Error("Simulated network failure");
+          const queued = [];
+          const result = await callback({
+            get: async ref => ({ exists: () => true, data: () => ref.kind === "game" ? storedGame : storedPlayer }),
+            update: (ref, patch) => queued.push([ref, patch])
+          });
+          for (const [ref, patch] of queued) {
+            if (ref.kind === "game") storedGame = { ...storedGame, ...patch };
+            else storedPlayer = { ...storedPlayer, ...patch };
+            writes++;
+          }
+          return result;
+        },
+        firebaseConfig: {}, createBoardController, BOARD_SPACES, playerBoardPosition,
+        localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} }
+      };
+      // Execute the actual app against the substitute, not a copy of its movement logic.
+      const test = new Function(...Object.keys(sdk), `${source}\nreturn {
+        presets: PROPERTY_PRESETS, board: boardController, move: movePlayerOnBoard, roll: rollDice, endTurn,
+        setState(state) { gameId = state.gameId; currentPlayerId = state.currentPlayerId; gameData = state.gameData; players = state.players; properties = state.properties; language = state.language || 'en'; boardController.sync(); },
+        state() { return { players, gameData, diceRollInProgress, boardSessionGeneration }; },
+        setLanguage, openDiceDialog, translations, t, setDiceLabels,
+        openMoneyDialog, closeMoneyDialog, openPropertySaleDialog, closePropertySaleDialog,
+        openPrivateMessages,
+        setMessages(messages) { privateMessages = messages; }
+      };`)(...Object.values(sdk));
+      const state = {
+        gameId: "BOARDTEST", currentPlayerId: "p0", language: "en",
+        gameData: { currentTurnPlayerId: "p0", turnNumber: 1, freeParkingPot: 350 },
+        players: ["car", "hat", "ship", "shoe", "dog", "cat", "iron", "thimble"].map((icon, i) => ({ id: `p${i}`, name: `Player ${i + 1}`, icon, color: ["#d64545", "#2f6fd6", "#2f8b57", "#d5a62f", "#29313a", "#cc5f93", "#218b8f", "#d66d2f"][i], balance: 1500 })),
+        properties: [{ id: "owned-brown", presetId: "Korkeavuorenkatu", ownerId: "p0", houses: 4, mortgaged: false }]
+      };
+      test.setState(state);
+      const boardSource = await (await fetch("../board.js")).text();
+      const boardText = new Function(`${boardSource.replace(/\bexport\s+/g, "")}\nreturn { LABELS, CHANCE_CARDS, COMMUNITY_CHEST_CARDS };`)();
+      const keys = Object.keys(test.translations.en).sort();
+      assert(JSON.stringify(keys) === JSON.stringify(Object.keys(test.translations.fi).sort()), "Application FI/EN dictionaries have identical keys");
+      assert(JSON.stringify(Object.keys(boardText.LABELS.en).sort()) === JSON.stringify(Object.keys(boardText.LABELS.fi).sort()), "Board FI/EN dictionaries have identical keys");
+      const referencedKeys = [...source.matchAll(/\bt\(["']([^"']+)["']\)/g)].map(match => match[1]);
+      assert(referencedKeys.every(key => test.translations.en[key] && test.translations.fi[key]), "Every literal application translation reference exists in both languages");
+      assert(keys.every(key => {
+        const placeholders = text => JSON.stringify((text.match(/\{\w+\}/g) || []).sort());
+        return placeholders(test.translations.en[key]) === placeholders(test.translations.fi[key]);
+      }), "FI/EN interpolation placeholders match");
+      assert([...boardText.CHANCE_CARDS, ...boardText.COMMUNITY_CHEST_CARDS].every(card => card.text.en && card.text.fi), "All informational cards have FI and EN text");
+      assert(BOARD_SPACES.length === 40 && BOARD_SPACES.every((space, i) => space.index === i), "40 stable board indices");
+      assert(new Set(BOARD_SPACES.map(space => JSON.stringify(boardGridPosition(space.index)))).size === 40, "40 unique grid positions");
+      assert(BOARD_SPACES.filter(space => space.propertyId).every(space => test.presets.some(preset => preset.id === space.propertyId)), "Every board property references an existing preset");
+      assert(BOARD_SPACES.filter(space => space.propertyId).length === test.presets.length, "All 28 Helsinki presets appear on the board");
+      assert(playerBoardPosition({}) === 0 && playerBoardPosition({ position: -1 }) === 0 && playerBoardPosition({ position: 39 }) === 39, "Legacy and invalid positions are safely normalized");
+      test.board.openBoardDialog();
+      await wait(100);
+      assert(document.querySelectorAll(".board-space").length === 40, "Renderer creates 40 spaces once");
+      assert(document.querySelectorAll(".board-player-token").length === 8, "All eight tokens visible at GO");
+      assert(new Set([...document.querySelectorAll(".board-player-token")].map(token => token.style.transform)).size === 8, "Shared-space tokens have distinct offsets");
+      state.players.forEach(player => { player.position = 11; });
+      test.setState(state);
+      await wait(170);
+      const sideName = document.querySelector("#board-space-11 .board-space-name").getBoundingClientRect();
+      const sideStrip = document.querySelector("#board-space-11 .board-color-strip").getBoundingClientRect();
+      assert([...document.querySelectorAll(".board-player-token")].every(token => token.getBoundingClientRect().top >= sideName.bottom && token.getBoundingClientRect().top >= sideStrip.bottom), "Eight side-space tokens do not cover the name or building strip");
+      state.players.forEach(player => { delete player.position; });
+      test.setState(state);
+      await wait(170);
+      const firstSpace = document.getElementById("board-space-1");
+      assert(firstSpace.querySelectorAll(".board-building").length === 4, "Four green houses rendered");
+      const token = document.querySelector(".board-player-token");
+      state.properties[0].houses = 5; state.properties[0].mortgaged = true;
+      state.gameData.freeParkingPot = 720;
+      test.setState(state);
+      assert(firstSpace.querySelectorAll(".board-hotel").length === 1 && firstSpace.querySelectorAll(".board-building").length === 1, "Five houses become one red hotel");
+      assert(firstSpace.classList.contains("is-mortgaged") && !firstSpace.querySelector(".board-mortgage").hidden, "Mortgage visual updates");
+      assert(!firstSpace.querySelector(".board-owner").hidden && firstSpace.querySelector(".board-owner").style.backgroundColor === "rgb(214, 69, 69)", "Owner color is independent of group strip");
+      assert(document.getElementById("boardPotValue").textContent === "720", "Shared pot updates");
+      assert(document.querySelector(".board-player-token") === token && document.getElementById("board-space-1") === firstSpace, "Updates preserve token and space DOM nodes");
+      for (let count = 0; count < 4; count++) {
+        state.properties[0].houses = count;
+        test.setState(state);
+        assert(firstSpace.querySelectorAll(".board-building").length === count, `${count} houses render correctly`);
+      }
+      state.properties[0].houses = 5;
+      test.setState(state);
+      test.setLanguage("fi");
+      assert(document.getElementById("boardTitle").textContent === "Pelilauta", "Finnish board labels supported");
+      for (const locale of ["en", "fi"]) {
+        test.setLanguage(locale);
+        const text = test.translations[locale], boardLabels = boardText.LABELS[locale];
+        assert([...document.querySelectorAll("[data-i18n]")].every(element => text[element.dataset.i18n] && element.textContent === text[element.dataset.i18n]), `${locale}: every static app label is translated`);
+        assert([...document.querySelectorAll("[data-i18n-placeholder]")].every(element => element.placeholder === text[element.dataset.i18nPlaceholder]), `${locale}: input placeholders are translated`);
+        assert([...document.querySelectorAll("[data-i18n-aria-label]")].every(element => element.getAttribute("aria-label") === text[element.dataset.i18nAriaLabel]), `${locale}: accessible app labels are translated`);
+        assert([...document.querySelectorAll("[data-board-label]")].every(element => boardLabels[element.dataset.boardLabel] && element.textContent === boardLabels[element.dataset.boardLabel]), `${locale}: every static board label is translated`);
+        assert([...document.querySelectorAll("[data-board-aria]")].every(element => element.getAttribute("aria-label") === boardLabels[element.dataset.boardAria]), `${locale}: accessible board labels are translated`);
+        assert(BOARD_SPACES.every(space => document.querySelector(`#board-space-${space.index} .board-space-name`).textContent === (space.propertyId ? test.presets.find(preset => preset.id === space.propertyId).name[locale] : space.name[locale])), `${locale}: all 40 space names follow the selected language`);
+        assert(document.querySelector('#playerColorChoices input[value="#d64545"]').getAttribute("aria-label") === text.color_red, `${locale}: color names are translated`);
+        test.setDiceLabels(7, "diceDoubleAgain");
+        test.setLanguage(locale === "en" ? "fi" : "en");
+        test.setLanguage(locale);
+        assert(document.getElementById("diceTotal").textContent === `${text.diceTotal}: 7` && document.getElementById("diceResult").textContent === text.diceDoubleAgain, `${locale}: existing dice results refresh without rerolling`);
+        test.board.finishMovement("p0");
+        test.setLanguage(locale === "en" ? "fi" : "en");
+        test.setLanguage(locale);
+        assert(document.getElementById("boardMovementStatus").textContent.includes(boardLabels.landed), `${locale}: landed status refreshes its language`);
+        test.board.setMovementError(test.t("boardStaleRevision"), "boardStaleRevision");
+        test.setLanguage(locale === "en" ? "fi" : "en");
+        test.setLanguage(locale);
+        assert(document.getElementById("boardMovementStatus").textContent === text.boardStaleRevision, `${locale}: keyed board error refreshes its language`);
+        test.board.showCard({ type: "chance", ...boardText.CHANCE_CARDS[0] });
+        test.setLanguage(locale === "en" ? "fi" : "en");
+        test.setLanguage(locale);
+        assert(document.getElementById("boardCardText").textContent === boardText.CHANCE_CARDS[0].text[locale] && document.getElementById("boardCardTitle").textContent === boardLabels.chance, `${locale}: open card popup refreshes its language`);
+        document.getElementById("closeBoardCard").click();
+      }
+      test.openMoneyDialog("player");
+      document.getElementById("recipientSelect").value = "p2";
+      document.getElementById("moneyAmount").value = "125";
+      document.getElementById("moneyReason").value = "User note";
+      test.setLanguage("fi");
+      assert(document.getElementById("moneyDialogTitle").textContent === test.t("payAnotherPlayer") && document.getElementById("recipientSelect").value === "p2" && document.getElementById("moneyAmount").value === "125" && document.getElementById("moneyReason").value === "User note", "Money dialog translates without losing recipient, amount or note");
+      test.closeMoneyDialog();
+      test.openPropertySaleDialog("owned-brown");
+      document.getElementById("propertySaleAmount").value = "75";
+      test.setLanguage("en");
+      assert(document.getElementById("propertySaleTitle").textContent.includes("Korkeavuori Street") && document.getElementById("propertySaleAmount").value === "75", "Sale heading translates while preserving its property and draft amount");
+      test.closePropertySaleDialog();
+      test.setMessages([{ id: "test-message", senderId: "p0", recipientId: "p1", text: "Original user message" }]);
+      test.openPrivateMessages();
+      document.getElementById("privateMessageText").value = "Unsent draft";
+      test.setLanguage("fi");
+      assert(document.getElementById("privateMessageList").textContent.includes(test.t("you")) && document.getElementById("privateMessageList").textContent.includes("Original user message") && document.getElementById("privateMessageText").value === "Unsent draft", "Message UI translates but user content and drafts are preserved");
+      document.getElementById("closePrivateMessages").click();
+      test.setLanguage("en");
+      const viewport = document.getElementById("boardViewport"), world = document.getElementById("boardWorld");
+      const oldZoom = world.style.getPropertyValue("--zoom");
+      viewport.dispatchEvent(new WheelEvent("wheel", { deltaY: -200, bubbles: true, cancelable: true }));
+      assert(world.style.getPropertyValue("--zoom") === oldZoom, "Normal wheel does not zoom");
+      viewport.dispatchEvent(new WheelEvent("wheel", { deltaY: -200, ctrlKey: true, bubbles: true, cancelable: true, clientX: 300, clientY: 300 }));
+      assert(Number(world.style.getPropertyValue("--zoom")) > Number(oldZoom), "Ctrl-wheel zooms the board");
+      for (let i = 0; i < 30; i++) document.getElementById("boardZoomIn").click();
+      assert(document.getElementById("boardZoomReset").textContent === "300%", "Zoom has an upper bound");
+      for (let i = 0; i < 60; i++) document.getElementById("boardZoomOut").click();
+      assert(document.getElementById("boardZoomReset").textContent === "55%", "Zoom has a lower bound");
+      document.getElementById("boardFit").click();
+      const bounds = world.getBoundingClientRect(), viewBounds = viewport.getBoundingClientRect();
+      assert(bounds.width <= viewBounds.width + 1 && bounds.height <= viewBounds.height + 1, "Full-board fit works at current viewport size");
+      for (let i = 0; i < 20; i++) document.getElementById("boardZoomIn").click();
+      document.getElementById("boardCenterMe").click();
+      const centeredToken = token.getBoundingClientRect();
+      assert(Math.abs(centeredToken.x + centeredToken.width / 2 - viewBounds.x - viewBounds.width / 2) < 2 && Math.abs(centeredToken.y + centeredToken.height / 2 - viewBounds.y - viewBounds.height / 2) < 2, "Center on me centers the token without changing zoom");
+      for (let i = 0; i < 100; i++) viewport.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+      assert(Number.parseFloat(world.style.getPropertyValue("--pan-x")) <= viewport.clientWidth / 2 - 24 + 1, "Panning is bounded at the near edge");
+      for (let i = 0; i < 200; i++) viewport.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+      assert(Number.parseFloat(world.style.getPropertyValue("--pan-x")) >= viewport.clientWidth / 2 - world.getBoundingClientRect().width + 24 - 1, "Panning is bounded at the far edge");
+      document.getElementById("boardFit").click();
+
+      const configureMove = (from, version = 0) => {
+        state.players[0] = { ...state.players[0], position: from, boardMoveVersion: version };
+        storedGame = { ...state.gameData };
+        storedPlayer = { ...state.players[0] };
+        test.setState(state);
+        return { gameId: state.gameId, playerId: "p0", from, version, turn: 1, rollId: `test-${from}-${version}`, session: test.state().boardSessionGeneration };
+      };
+      const movement = configureMove(5);
+      const observed = [];
+      const observer = new MutationObserver(() => observed.push(Number(token.dataset.position)));
+      observer.observe(token, { attributes: true, attributeFilter: ["data-position"] });
+      const writesBefore = writes;
+      await test.move(movement, 7);
+      observer.disconnect();
+      assert([6, 7, 8, 9, 10, 11, 12].every(position => observed.includes(position)), "Movement visits every intermediate space");
+      assert(storedPlayer.position === 12 && writes === writesBefore + 1, "Movement writes only final position once");
+      assert(storedPlayer.balance === 1500 && storedGame.freeParkingPot === 720, "Movement leaves money and pot unchanged");
+      const replayWrites = writes;
+      await test.move(movement, 7);
+      assert(writes === replayWrites, "Same roll id cannot write movement twice");
+      const jailWrites = writes;
+      await test.move(configureMove(28, 1), 2);
+      assert(storedPlayer.position === 10 && token.dataset.position === "10", "Landing on Go to Jail relocates the local and stored token to Jail / Just Visiting");
+      assert(writes === jailWrites + 1 && storedPlayer.boardLastDiceTotal === 2, "Jail relocation uses one final write and preserves the dice total");
+      assert(storedPlayer.balance === 1500 && storedGame.freeParkingPot === 720 && !document.getElementById("boardCardDialog").open, "Jail relocation changes no money and draws no card");
+      await test.move(configureMove(28, 2), 3);
+      assert(storedPlayer.position === 31, "Passing Go to Jail does not send the player to jail");
+      await test.move(configureMove(8, 3), 2);
+      assert(storedPlayer.position === 10, "Ordinary landing on Jail / Just Visiting remains unchanged");
+      const race = configureMove(5, 3);
+      storedPlayer = { ...storedPlayer, position: 9, boardMoveVersion: 4, boardLastRollId: "other-tab" };
+      let rejected = false;
+      try { await test.move(race, 2); } catch { rejected = true; test.board.finishMovement("p0"); }
+      assert(rejected && storedPlayer.position === 9, "Concurrent movement rejects stale revision");
+      const wrongTurn = configureMove(5);
+      storedGame.currentTurnPlayerId = "p1";
+      rejected = false;
+      try { await test.move(wrongTurn, 1); } catch { rejected = true; test.board.finishMovement("p0"); }
+      assert(rejected && storedPlayer.position === 5, "Changed turn prevents movement commit");
+      await test.move(configureMove(38), 4);
+      assert(storedPlayer.position === 2 && storedPlayer.balance === 1500, "GO wrap-around does not pay salary");
+      assert(document.getElementById("boardCardDialog").open && storedPlayer.boardLastCard.type === "community", "Community landing draws one informational card");
+      document.getElementById("closeBoardCard").click();
+      test.board.sync(); test.board.sync();
+      assert(!document.getElementById("boardCardDialog").open, "Rerender does not draw another card");
+      await test.move(configureMove(5, 10), 2);
+      assert(document.getElementById("boardCardDialog").open && storedPlayer.boardLastCard.type === "chance", "Chance landing draws an informational card");
+      document.getElementById("closeBoardCard").click();
+      configureMove(0, 20);
+      const beforeStarting = writes;
+      test.openDiceDialog();
+      await test.roll(true);
+      assert(storedPlayer.position === 0 && writes === beforeStarting, "Starting dice rolls never move tokens or write positions");
+      document.getElementById("closeDiceDialog").click();
+      test.openDiceDialog();
+      failCommit = true;
+      await test.roll(false);
+      failCommit = false;
+      assert(!test.state().diceRollInProgress && token.dataset.position === "0", "Failed commit restores token and releases dice lock");
+      assert(document.getElementById("boardMovementStatus").textContent === "Simulated network failure", "Failed commit error is visible inside board");
+      configureMove(18, 30);
+      const beforeNormal = writes;
+      test.openDiceDialog();
+      const normal = test.roll(false);
+      const duplicate = test.roll(false);
+      await test.endTurn();
+      assert(test.state().diceRollInProgress && writes === beforeNormal, "Dice lock blocks duplicate roll and ending turn during movement");
+      await wait(800);
+      assert(document.getElementById("diceDialog").open && document.querySelectorAll("#dicePair .die-face:not(.rolling)").length === 2 && token.dataset.position === "18", "Settled dice remain visible before movement begins");
+      await wait(800);
+      assert(document.getElementById("diceDialog").open && token.dataset.position === "18" && writes === beforeNormal, "One-second dice preview does not move or write the player");
+      await normal; await duplicate;
+      const rolledLanding = (18 + storedPlayer.boardLastDiceTotal) % 40;
+      assert(writes === beforeNormal + 1 && storedPlayer.position === (BOARD_SPACES[rolledLanding].type === "goToJail" ? 10 : rolledLanding), "Normal dice flow animates and saves exactly one movement");
+      if (document.getElementById("boardCardDialog").open) document.getElementById("boardCardDialog").close();
+      const cancellation = test.board.animatePlayerMovement("p0", 0, 1);
+      await wait(50);
+      test.board.reset();
+      rejected = false;
+      try { await cancellation; } catch { rejected = true; }
+      assert(rejected, "Leaving a game cancels pending local animation");
+      configureMove(0, 40);
+      const obsoleteWrites = writes;
+      test.openDiceDialog();
+      const obsoleteRoll = test.roll(false);
+      test.board.reset();
+      await obsoleteRoll;
+      assert(writes === obsoleteWrites && !document.getElementById("boardDialog").open && !test.state().diceRollInProgress, "Reset during dice delay invalidates roll even for the same game/player");
+      test.board.reset();
+      assert(!document.getElementById("boardDialog").open && !document.getElementById("boardCardDialog").open, "Reset closes board and card dialogs");
+      test.setState(state);
+      test.board.openBoardDialog();
+      await wait(100);
+      document.getElementById("board-space-3").click();
+      assert(document.getElementById("propertyDialog").open && document.getElementById("propertyPresetSelect").value === "Kasarmikatu", "Free board property opens existing buy/auction view with correct selection");
+      assert(document.getElementById("boardDialog").open, "Buying shortcut preserves the board underneath");
+      document.getElementById("closePropertyDialog").click();
+      // Exercise pointer tap/drag classification without requiring trusted input
+      // capture in this isolated test. Interactive mouse/touch remain unchanged.
+      const capture = viewport.setPointerCapture;
+      viewport.setPointerCapture = () => {};
+      const freeSpace = document.getElementById("board-space-3");
+      const point = freeSpace.getBoundingClientRect();
+      const tap = (type, x, pointerId = 901) => freeSpace.dispatchEvent(new PointerEvent(type, {
+        bubbles: true, pointerId, pointerType: "mouse", button: 0,
+        clientX: x, clientY: point.y + point.height / 2
+      }));
+      tap("pointerdown", point.x + point.width / 2);
+      tap("pointermove", point.x + point.width / 2 + 25);
+      tap("pointerup", point.x + point.width / 2 + 25);
+      assert(!document.getElementById("propertyDialog").open, "Dragging over a property does not activate its shortcut");
+      tap("pointerdown", point.x + point.width / 2);
+      tap("pointerup", point.x + point.width / 2);
+      assert(document.getElementById("propertyDialog").open, "Pointer tap opens the property shortcut");
+      document.getElementById("closePropertyDialog").click();
+      tap("pointerdown", point.x + point.width / 2);
+      tap("pointerdown", point.x + point.width / 2 + 10, 902);
+      tap("pointerup", point.x + point.width / 2, 901);
+      tap("pointerup", point.x + point.width / 2 + 10, 902);
+      assert(!document.getElementById("propertyDialog").open, "Two-finger interaction does not activate a property shortcut");
+      viewport.setPointerCapture = capture;
+      state.properties.push({ id: "owned-p1", presetId: "Rantatie", ownerId: "p1", houses: 2, mortgaged: false });
+      test.setState(state);
+      document.getElementById("board-space-6").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      const ownerDetails = document.querySelector('[data-player-ownership="p1"]');
+      assert(!document.getElementById("boardDialog").open && ownerDetails.open, "Owned board property opens its owner's expanded player list");
+      assert(ownerDetails.querySelector('[data-owned-property="owned-p1"]').classList.contains("board-property-highlight") && ownerDetails.textContent.includes("90"), "Selected owned property is highlighted with its existing rent details");
+      assert(document.getElementById("currentPlayerName").textContent !== "Player 2", "Owner shortcut does not switch the selected player");
+      test.board.openBoardDialog();
+      await wait(100);
+      report.textContent = `PASS — ${results.length} checks\n\n${results.map(result => `✓ ${result}`).join("\n")}\n\nClose the board to read results. This page uses isolated test data only.`;
+      document.title = `PASS: ${results.length} board checks`;
+      window.boardTest = { test, state, results };
+    } catch (error) {
+      const report = document.getElementById("boardTestResults") || document.body.appendChild(document.createElement("pre"));
+      report.textContent = `FAIL after ${results.length} checks\n${error.stack}\n\n${results.join("\n")}`;
+      document.title = "FAIL: board checks";
+      console.error(error);
+    }
+  </script>
+</body>
+</html>

@@ -6,6 +6,7 @@ import {
   writeBatch
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
+import { createBoardController, BOARD_SPACES, playerBoardPosition } from "./board.js?v=20261003-4";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -394,6 +395,8 @@ let replyToMessage = null;
 let diceDoubleStreaks = new Map();
 let diceLastTotals = new Map();
 let diceRollInProgress = false;
+let activeDiceRollId = "";
+let boardSessionGeneration = 0;
 let expandedPlayerOwnership = new Set();
 let lastObservedTurn = null;
 let lastVibrationTurnKey = "";
@@ -450,6 +453,7 @@ const translations = {
     passwordRequiredForCode: "Enter the one-time password shared by the game creator.",
     or: "or",
     gameCode: "Game code",
+    gameCodePlaceholder: "e.g. K7Q9F2MX",
     gameCodeLookupHelp: "Enter the 8-character code to find a game. It will appear below.",
     gameCodeUpper: "GAME CODE",
     joinGame: "Join game",
@@ -462,6 +466,14 @@ const translations = {
     startingBalance: "Starting balance",
     playerIcon: "Icon",
     playerColor: "Color",
+    color_red: "Red",
+    color_blue: "Blue",
+    color_green: "Green",
+    color_yellow: "Yellow",
+    color_black: "Black",
+    color_pink: "Pink",
+    color_teal: "Teal",
+    color_orange: "Orange",
     add: "Add",
     yourBalance: "YOUR BALANCE",
     monopolyMoney: "Monopoly money",
@@ -501,6 +513,8 @@ const translations = {
     diceJailed: "Third double in a row — go to jail!",
     diceNotDouble: "No double. End your turn when you are ready.",
     diceRolling: "Rolling…",
+    boardStaleRevision: "Another device already moved this player. This roll was not applied again.",
+    boardMovementCancelled: "Board movement cancelled.",
     diceTurnHint: "It is {name}'s turn. Switch to that player to roll; starting rolls are always available.",
     turn: "Turn",
     turnOrder: "Order",
@@ -537,6 +551,17 @@ const translations = {
     yourProperties: "Your properties",
     noAvailableProperties: "No free properties available.",
     group: "Group",
+    group_brown: "Brown",
+    group_lightblue: "Light blue",
+    group_pink: "Pink",
+    group_orange: "Orange",
+    group_red: "Red",
+    group_yellow: "Yellow",
+    group_green: "Green",
+    group_darkblue: "Dark blue",
+    group_station: "Stations",
+    group_utility: "Utilities",
+    group_custom: "Custom",
     housePrice: "House price",
     canBuildHouses: "Houses allowed",
     noHouses: "No houses",
@@ -671,6 +696,7 @@ const translations = {
     passwordRequiredForCode: "Syötä pelin luojalta saamasi kertakäyttöinen salasana.",
     or: "tai",
     gameCode: "Pelikoodi",
+    gameCodePlaceholder: "esim. K7Q9F2MX",
     gameCodeLookupHelp: "Syötä 8-merkkinen koodi etsiäksesi pelin. Löydetty peli ilmestyy alle.",
     gameCodeUpper: "PELIKOODI",
     joinGame: "Liity peliin",
@@ -683,6 +709,14 @@ const translations = {
     startingBalance: "Aloitussaldo",
     playerIcon: "Kuvake",
     playerColor: "Väri",
+    color_red: "Punainen",
+    color_blue: "Sininen",
+    color_green: "Vihreä",
+    color_yellow: "Keltainen",
+    color_black: "Musta",
+    color_pink: "Vaaleanpunainen",
+    color_teal: "Sinivihreä",
+    color_orange: "Oranssi",
     add: "Lisää",
     yourBalance: "SALDOSI",
     monopolyMoney: "Monopoly-rahaa",
@@ -722,6 +756,8 @@ const translations = {
     diceJailed: "Kolmannet tuplat peräkkäin — vankilaan!",
     diceNotDouble: "Ei tuplia. Päätä vuoro, kun olet valmis.",
     diceRolling: "Heitetään…",
+    boardStaleRevision: "Toinen laite on jo siirtänyt tätä pelaajaa. Heittoa ei käytetty uudelleen.",
+    boardMovementCancelled: "Pelilaudalla liikkuminen peruttiin.",
     diceTurnHint: "Nyt on pelaajan {name} vuoro. Vaihda kyseiseen pelaajaan heittääksesi; aloitusheitto on aina käytettävissä.",
     turn: "Vuoro",
     turnOrder: "Järjestys",
@@ -758,6 +794,17 @@ const translations = {
     yourProperties: "Omat tontit",
     noAvailableProperties: "Vapaita tontteja ei ole.",
     group: "Ryhmä",
+    group_brown: "Ruskea",
+    group_lightblue: "Vaaleansininen",
+    group_pink: "Vaaleanpunainen",
+    group_orange: "Oranssi",
+    group_red: "Punainen",
+    group_yellow: "Keltainen",
+    group_green: "Vihreä",
+    group_darkblue: "Tummansininen",
+    group_station: "Asemat",
+    group_utility: "Laitokset",
+    group_custom: "Mukautettu",
     housePrice: "Talon hinta",
     canBuildHouses: "Talot sallittu",
     noHouses: "Ei taloja",
@@ -930,7 +977,11 @@ function applyLanguage() {
   els.languageToggle.setAttribute("aria-label", t("switchLanguage"));
   const statusKey = els.statusBar.dataset.statusKey;
   if (statusKey) els.statusBar.textContent = t(statusKey);
+  els.joinCodeInput.placeholder = t("gameCodePlaceholder");
   updateMoneyDialogTitle();
+  if (els.moneyDialog.open && moneyMode === "player") renderMoneyRecipients();
+  updatePropertySaleTitle();
+  renderDiceLabels();
   renderPlayerOptions();
   renderPropertySelect();
   renderKnownGames();
@@ -938,8 +989,11 @@ function applyLanguage() {
   renderCurrentPlayer();
   renderTransactions();
   renderProperties();
-  renderAuction();
+  renderAuction(true);
   renderPrivateMessageBadge();
+  if (els.privateMessagesDialog.open) renderPrivateMessages();
+  if (els.messageToast.dataset.senderName !== undefined) renderPrivateMessageToast();
+  boardController.sync();
 }
 
 function setLanguage(nextLanguage) {
@@ -955,14 +1009,16 @@ function setStatus(message, isError = false, key = "") {
 }
 
 function money(value) {
-  return new Intl.NumberFormat("fi-FI", { maximumFractionDigits: 0 }).format(Number(value || 0));
+  return new Intl.NumberFormat(language === "fi" ? "fi-FI" : "en", { maximumFractionDigits: 0 }).format(Number(value || 0));
 }
 
 function renderFreeParking() {
   if (els.freeParkingPot) els.freeParkingPot.textContent = money(gameData.freeParkingPot || 0);
+  boardController.sync();
 }
 
 function showOnly(view) {
+  if (view !== els.gameView) boardController.reset();
   for (const element of [els.homeView, els.lobbyView, els.gameView]) element.classList.add("hidden");
   view.classList.remove("hidden");
   els.leaveGameBtn.classList.toggle("hidden", view === els.homeView);
@@ -1168,6 +1224,7 @@ function leaveGame() {
 }
 
 async function endTurn(expectedPlayerId = currentPlayerId) {
+  if (diceRollInProgress) return;
   if (!gameId || !expectedPlayerId) return;
   const gameRef = doc(db, "games", gameId);
   try {
@@ -1192,6 +1249,7 @@ async function endTurn(expectedPlayerId = currentPlayerId) {
 }
 
 function renderTurnStatus() {
+  els.endTurnBtn.disabled = diceRollInProgress;
   if (!els.turnStatus || !els.endTurnBtn) return;
   const activePlayer = players.find(player => player.id === gameData.currentTurnPlayerId);
   if (!activePlayer) {
@@ -1226,6 +1284,7 @@ function diceStreakKey(playerId = currentPlayerId) {
 }
 
 function stopSubscriptions() {
+  boardController.reset();
   if (auctionFinalizeTimer) {
     clearTimeout(auctionFinalizeTimer);
     auctionFinalizeTimer = null;
@@ -1343,6 +1402,7 @@ function subscribeToGame() {
     renderPlayers();
     renderCurrentPlayer();
     renderAuction();
+    boardController.sync();
     if (currentPlayerId) initializeTurnIfNeeded();
   }, handleError);
 
@@ -1357,6 +1417,7 @@ function subscribeToGame() {
     renderPropertySelect();
     renderProperties();
     renderPlayers();
+    boardController.sync();
   }, handleError);
 
   privateMessageSnapshotInitialized = false;
@@ -1374,7 +1435,7 @@ function subscribeToGame() {
         if (viewingConversation) markConversationRead(activeRecipientId);
         else {
           const sender = players.find(player => player.id === newIncoming[newIncoming.length - 1].senderId);
-          showPrivateMessageToast(sender?.name || t("player"));
+          showPrivateMessageToast(sender?.name || "");
         }
       }
       privateMessageSnapshotInitialized = true;
@@ -1397,8 +1458,9 @@ function renderPlayerOptions() {
   els.playerColorChoices.innerHTML = PLAYER_COLORS.map(color => {
     const used = usedColors.has(color.value);
     const checked = selectedColor === color.value;
-    return `<label class="color-choice ${used ? "disabled" : ""}" title="${color.id}">
-      <input type="radio" name="playerColor" value="${color.value}" ${checked ? "checked" : ""} ${used ? "disabled" : ""} required />
+    const label = escapeHtml(t(`color_${color.id}`));
+    return `<label class="color-choice ${used ? "disabled" : ""}" title="${label}">
+      <input type="radio" name="playerColor" value="${color.value}" aria-label="${label}" ${checked ? "checked" : ""} ${used ? "disabled" : ""} required />
       <span style="--player-color: ${color.value}"></span>
     </label>`;
   }).join("");
@@ -1436,6 +1498,7 @@ async function addPlayer(event) {
       balance,
       icon,
       color,
+      position: 0,
       turnOrder: ordered.length,
       createdAt: serverTimestamp()
     });
@@ -1462,6 +1525,7 @@ async function selectPlayer(playerId) {
   renderTransactions();
   await initializeTurnIfNeeded();
   renderTurnStatus();
+  boardController.sync();
 }
 
 async function initializeTurnIfNeeded() {
@@ -1497,14 +1561,28 @@ function openDiceDialog() {
   const activeTurnPlayer = players.find(item => item.id === gameData.currentTurnPlayerId);
   els.dicePlayerName.textContent = player.name;
   els.dicePair.innerHTML = "";
-  els.diceTotal.textContent = "";
   const canRollForTurn = gameData.currentTurnPlayerId === currentPlayerId;
-  els.diceResult.textContent = canRollForTurn
-    ? ""
-    : t("diceTurnHint").replace("{name}", activeTurnPlayer?.name || t("player"));
-  els.rollDiceAgainBtn.disabled = !canRollForTurn;
-  els.startingRollBtn.disabled = false;
+  setDiceLabels(null, canRollForTurn ? "" : "diceTurnHint", activeTurnPlayer?.name || "");
+  els.rollDiceAgainBtn.disabled = diceRollInProgress || !canRollForTurn;
+  els.startingRollBtn.disabled = diceRollInProgress;
   if (!els.diceDialog.open) els.diceDialog.showModal();
+}
+
+// Presentation data only: language changes never roll or move a token.
+function setDiceLabels(total = null, resultKey = "", playerName = "") {
+  els.diceTotal.dataset.total = total === null ? "" : String(total);
+  els.diceResult.dataset.resultKey = resultKey;
+  els.diceResult.dataset.playerName = playerName;
+  renderDiceLabels();
+}
+
+function renderDiceLabels() {
+  const total = els.diceTotal.dataset.total;
+  const resultKey = els.diceResult.dataset.resultKey;
+  els.diceTotal.textContent = total ? `${t("diceTotal")}: ${total}` : "";
+  els.diceResult.textContent = resultKey
+    ? t(resultKey).replace("{name}", els.diceResult.dataset.playerName || t("player"))
+    : "";
 }
 
 function dieMarkup(value, rolling = false) {
@@ -1528,39 +1606,137 @@ async function rollDice(isStartingRoll = false) {
   const rollerId = currentPlayerId;
   if (diceRollInProgress || !rollerId) return;
   if (!isStartingRoll && gameData.currentTurnPlayerId !== rollerId) return setStatus("", true, "turnNotYours");
+  // Capture the revision BEFORE the dice animation. Concurrent tabs use the same
+  // expected revision; only one final transaction can commit that movement.
+  const rollGameId = gameId;
+  const roller = players.find(player => player.id === rollerId);
+  if (!roller || !rollGameId) return;
+  const movement = {
+    gameId: rollGameId, playerId: rollerId, from: playerBoardPosition(roller),
+    version: Number(roller.boardMoveVersion || 0), turn: Number(gameData.turnNumber || 1),
+    rollId: randomHex(16), session: boardSessionGeneration
+  };
+  activeDiceRollId = movement.rollId;
   diceRollInProgress = true;
+  renderTurnStatus();
+  boardController.sync();
   els.rollDiceAgainBtn.disabled = true;
   els.startingRollBtn.disabled = true;
-  els.diceResult.textContent = t("diceRolling");
-  els.diceTotal.textContent = "";
+  setDiceLabels(null, "diceRolling");
   els.dicePair.innerHTML = `${dieMarkup(1, true)}${dieMarkup(6, true)}`;
   await delay(720);
   const first = crypto.getRandomValues(new Uint32Array(1))[0] % 6 + 1;
   const second = crypto.getRandomValues(new Uint32Array(1))[0] % 6 + 1;
+  if (!isCurrentBoardMovement(movement)) {
+    if (activeDiceRollId === movement.rollId) {
+      activeDiceRollId = "";
+      diceRollInProgress = false;
+      renderTurnStatus();
+      boardController.sync();
+    }
+    return;
+  }
   if (isStartingRoll) {
     els.dicePair.innerHTML = `${dieMarkup(first)}${dieMarkup(second)}`;
-    els.diceTotal.textContent = `${t("diceTotal")}: ${first + second}`;
-    els.diceResult.textContent = t("startingRollResult");
+    setDiceLabels(first + second, "startingRollResult");
     els.rollDiceAgainBtn.disabled = gameData.currentTurnPlayerId !== currentPlayerId;
     els.startingRollBtn.disabled = false;
     diceRollInProgress = false;
+    activeDiceRollId = "";
+    renderTurnStatus();
+    boardController.sync();
     return;
   }
-  diceLastTotals.set(diceStreakKey(rollerId), first + second);
   const isDouble = first === second;
   const streakKey = diceStreakKey(rollerId);
   const streak = isDouble ? (diceDoubleStreaks.get(streakKey) || 0) + 1 : 0;
-  if (isDouble && streak >= 3) diceDoubleStreaks.set(streakKey, 0);
-  else diceDoubleStreaks.set(streakKey, streak);
   els.dicePair.innerHTML = `${dieMarkup(first)}${dieMarkup(second)}`;
-  els.diceTotal.textContent = `${t("diceTotal")}: ${first + second}`;
-  if (isDouble && streak >= 3) els.diceResult.textContent = t("diceJailed");
-  else if (isDouble) els.diceResult.textContent = t("diceDoubleAgain");
-  else els.diceResult.textContent = t("diceNotDouble");
-  els.rollDiceAgainBtn.disabled = gameData.currentTurnPlayerId !== currentPlayerId;
-  els.startingRollBtn.disabled = false;
-  diceRollInProgress = false;
-  if (isDouble && streak >= 3) setTimeout(() => endTurn(rollerId), 700);
+  setDiceLabels(first + second, isDouble && streak >= 3 ? "diceJailed" : isDouble ? "diceDoubleAgain" : "diceNotDouble");
+  let committed = false, movementError = "", movementErrorKey = "";
+  try {
+    // Keep the settled dice visible for one second before opening the route.
+    await delay(1000);
+    if (!isCurrentBoardMovement(movement)) return;
+    // Display the route, not a teleport hidden behind the dice popup.
+    if (els.diceDialog.open) els.diceDialog.close();
+    if (!document.getElementById("boardDialog").open) boardController.openBoardDialog();
+    boardController.setDice(first, second, isDouble && streak >= 3 ? "diceJailed" : isDouble ? "diceDoubleAgain" : "diceNotDouble");
+    committed = await movePlayerOnBoard(movement, first + second);
+    if (committed && isCurrentBoardMovement(movement)) {
+      diceLastTotals.set(streakKey, first + second);
+      diceDoubleStreaks.set(streakKey, isDouble && streak >= 3 ? 0 : streak);
+    }
+  } catch (err) {
+    if (isCurrentBoardMovement(movement)) {
+      handleError(err);
+      movementError = err?.message || t("somethingWrong");
+      movementErrorKey = err?.translationKey || "";
+    }
+  } finally {
+    // An obsolete roll must not unlock or redraw a newer session's active roll.
+    if (activeDiceRollId === movement.rollId) {
+      activeDiceRollId = "";
+      diceRollInProgress = false;
+      boardController.finishMovement(rollerId);
+      els.startingRollBtn.disabled = false;
+      renderTurnStatus();
+      boardController.sync();
+      if (movementError) boardController.setMovementError(movementError, movementErrorKey);
+    }
+  }
+  // Preserve the existing third-double turn behavior; no automatic jail movement.
+  if (committed && isDouble && streak >= 3 && isCurrentBoardMovement(movement)) await endTurn(rollerId);
+}
+
+function isCurrentBoardMovement(movement) {
+  return gameId === movement.gameId && currentPlayerId === movement.playerId && boardSessionGeneration === movement.session;
+}
+
+// Board movement writes only the final position, with an optimistic concurrency
+// guard and an idempotent roll id. Bank balances and manual actions are untouched.
+async function movePlayerOnBoard(movement, steps) {
+  let finalPosition = await boardController.animatePlayerMovement(movement.playerId, movement.from, steps);
+  if (!isCurrentBoardMovement(movement)) throw new Error(t("turnNotYours"));
+  // Landing, not merely passing, sends the piece directly to Jail / Just Visiting.
+  // Commit the relocation with the same guarded final-position write.
+  if (BOARD_SPACES[finalPosition].type === "goToJail") {
+    finalPosition = BOARD_SPACES.find(space => space.type === "jail").index;
+    boardController.relocatePlayerOnBoard(movement.playerId, finalPosition);
+  }
+  const landing = BOARD_SPACES[finalPosition];
+  const card = landing.type === "chance" ? boardController.drawChanceCard()
+    : landing.type === "community" ? boardController.drawCommunityChestCard() : null;
+  const gameRef = doc(db, "games", movement.gameId);
+  const playerRef = doc(db, "games", movement.gameId, "players", movement.playerId);
+  const applied = await runTransaction(db, async tx => {
+    const gameSnap = await tx.get(gameRef);
+    const playerSnap = await tx.get(playerRef);
+    if (!isCurrentBoardMovement(movement)) throw new Error(t("turnNotYours"));
+    if (!gameSnap.exists()) throw new Error(t("gameNotFound"));
+    if (!playerSnap.exists()) throw new Error(t("playerGone"));
+    const data = playerSnap.data(), game = gameSnap.data();
+    if (data.boardLastRollId === movement.rollId) return false;
+    if (game.currentTurnPlayerId !== movement.playerId || Number(game.turnNumber || 1) !== movement.turn) throw new Error(t("turnNotYours"));
+    if (Number(data.boardMoveVersion || 0) !== movement.version || playerBoardPosition(data) !== movement.from) {
+      const error = new Error(t("boardStaleRevision"));
+      error.translationKey = "boardStaleRevision";
+      throw error;
+    }
+    tx.update(playerRef, {
+      position: finalPosition, boardMoveVersion: movement.version + 1,
+      boardLastRollId: movement.rollId, boardLastDiceTotal: steps,
+      boardLastCard: card ? { id: card.id, type: card.type, rollId: movement.rollId } : null
+    });
+    return true;
+  });
+  if (!isCurrentBoardMovement(movement)) return false;
+  // The snapshot may arrive before or after the transaction promise resolves.
+  // Never roll back a newer position if another tab has already made a later move.
+  players = players.map(player => player.id === movement.playerId && Number(player.boardMoveVersion || 0) <= movement.version
+    ? { ...player, position: finalPosition, boardMoveVersion: movement.version + 1 } : player);
+  boardController.finishMovement(movement.playerId);
+  if (applied && card && currentPlayerId === movement.playerId) boardController.showCard(card);
+  return applied;
 }
 
 function renderPlayers() {
@@ -1611,12 +1787,46 @@ function propertiesOwnedBy(playerId) {
   });
 }
 
+// Board shortcuts reuse the existing buying/auction UI and owner rent list.
+function openBoardProperty(propertyId) {
+  if (diceRollInProgress || !currentPlayerId || !propertyPreset(propertyId)) return;
+  const property = properties.find(item => (item.presetId || item.id) === propertyId);
+  if (!property) {
+    els.propertyPresetSelect.value = propertyId;
+    propertyChoicesOpen = false;
+    renderPropertySelect();
+    renderProperties();
+    if (!els.propertyDialog.open) els.propertyDialog.showModal();
+    requestAnimationFrame(() => els.propertyPresetToggle.focus({ preventScroll: true }));
+    return;
+  }
+  const owner = players.find(player => player.id === property.ownerId);
+  if (!owner) return setStatus("", true, "playerGone");
+  expandedPlayerOwnership.add(owner.id);
+  renderPlayers();
+  const details = [...els.gamePlayers.querySelectorAll("[data-player-ownership]")]
+    .find(element => element.dataset.playerOwnership === owner.id);
+  const row = details && [...details.querySelectorAll("[data-owned-property]")]
+    .find(element => element.dataset.ownedProperty === property.id);
+  document.getElementById("boardDialog").close();
+  if (details) {
+    details.open = true;
+    const target = row || details;
+    target.classList.add("board-property-highlight");
+    target.setAttribute("tabindex", "-1");
+    requestAnimationFrame(() => {
+      target.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "center" });
+      target.focus({ preventScroll: true });
+    });
+  }
+}
+
 function propertyOwnershipMarkup(property) {
   const data = propertyData(property);
   const houses = Number(property.houses || 0);
   const buildingLabel = houses >= 5 ? t("hotelCount") : houses > 0 ? t("housesCount").replace("{count}", houses) : "";
   const rentDue = propertyRentDue(property);
-  return `<div class="owned-property" style="--property-color: ${data.color}" title="${escapeHtml(data.name)}">
+  return `<div class="owned-property" data-owned-property="${escapeHtml(property.id)}" style="--property-color: ${data.color}" title="${escapeHtml(data.name)}">
     <span class="owned-property-color"></span>
     <span class="owned-property-name">${escapeHtml(data.name)}</span>
     ${buildingLabel ? `<strong>${escapeHtml(buildingLabel)}</strong>` : ""}
@@ -1731,10 +1941,15 @@ function renderPrivateMessageBadge() {
 
 function showPrivateMessageToast(senderName) {
   if (!els.messageToast) return;
-  els.messageToast.textContent = t("newPrivateMessage").replace("{name}", senderName);
+  els.messageToast.dataset.senderName = senderName;
+  renderPrivateMessageToast();
   els.messageToast.classList.remove("hidden");
   if (privateMessageToastTimer) clearTimeout(privateMessageToastTimer);
   privateMessageToastTimer = setTimeout(() => els.messageToast.classList.add("hidden"), 4500);
+}
+
+function renderPrivateMessageToast() {
+  els.messageToast.textContent = t("newPrivateMessage").replace("{name}", els.messageToast.dataset.senderName || t("player"));
 }
 
 function markConversationRead(recipientId) {
@@ -1793,7 +2008,9 @@ function renderReplyContext() {
     return;
   }
   els.replyContext.classList.remove("hidden");
-  els.replyContext.textContent = `${t("replyTo")}: ${replyToMessage.senderName} — ${replyToMessage.text}`;
+  const senderName = replyToMessage.senderId === currentPlayerId ? t("you")
+    : (replyToMessage.senderName || t("player"));
+  els.replyContext.textContent = `${t("replyTo")}: ${senderName} — ${replyToMessage.text}`;
   els.cancelReplyBtn.classList.remove("hidden");
 }
 
@@ -1813,7 +2030,7 @@ function beginMessageReply(messageId) {
 
 function openPrivateMessages() {
   const recipients = players.filter(player => player.id !== currentPlayerId);
-  if (!recipients.length) return setStatus(t("chooseAnotherPlayer"), true);
+  if (!recipients.length) return setStatus("", true, "chooseAnotherPlayer");
   const previousRecipient = els.messageRecipientSelect.value;
   els.messageRecipientSelect.innerHTML = recipients.map(player => `<option value="${player.id}">${escapeHtml(player.name)}</option>`).join("");
   if (recipients.some(player => player.id === previousRecipient)) els.messageRecipientSelect.value = previousRecipient;
@@ -1829,7 +2046,7 @@ async function sendPrivateMessage(event) {
   const recipientId = els.messageRecipientSelect.value;
   if (!text || !recipientId || !currentPlayerId || !gameId) return;
   const recipient = players.find(player => player.id === recipientId);
-  if (!recipient) return setStatus(t("playerGone"), true);
+  if (!recipient) return setStatus("", true, "playerGone");
   try {
     await addDoc(collection(db, "games", gameId, "privateMessages"), {
       senderId: currentPlayerId,
@@ -2203,7 +2420,7 @@ function openMoneyDialog(mode) {
       updateMoneyDialogTitle();
       return setStatus("", true, "addOtherPlayer");
     }
-    els.recipientSelect.innerHTML = others.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
+    renderMoneyRecipients();
     els.recipientWrap.classList.remove("hidden");
   }
   updateMoneyDialogTitle();
@@ -2217,6 +2434,13 @@ function updateMoneyDialogTitle() {
   else if (moneyMode === "bank-receive") els.moneyDialogTitle.textContent = t("receiveFromBank");
   else if (moneyMode === "free-parking-pay") els.moneyDialogTitle.textContent = t("payFreeParking");
   else els.moneyDialogTitle.textContent = t("payment");
+}
+
+function renderMoneyRecipients() {
+  const selectedRecipient = els.recipientSelect.value;
+  const recipients = players.filter(player => player.id !== currentPlayerId);
+  els.recipientSelect.innerHTML = recipients.map(player => `<option value="${player.id}">${escapeHtml(player.name)}</option>`).join("");
+  if (recipients.some(player => player.id === selectedRecipient)) els.recipientSelect.value = selectedRecipient;
 }
 
 function closeMoneyDialog() {
@@ -2325,7 +2549,8 @@ async function bankTransaction(playerId, delta, reason, type) {
 
 function renderTransactions() {
   const me = currentPlayerId;
-  const playerName = id => id === "bank" ? t("bank") : (players.find(p => p.id === id)?.name || t("player"));
+  const playerName = id => id === "bank" ? t("bank") : id === "free-parking" ? t("claimFreeParking")
+    : (players.find(p => p.id === id)?.name || t("player"));
   if (!transactions.length) {
     els.transactionList.innerHTML = `<div class="empty">${t("noTransactionsYet")}</div>`;
     return;
@@ -2406,6 +2631,12 @@ function propertyData(property) {
     rents: preset?.rents || property.rents || [],
     houses: Number(property.houses || 0)
   };
+}
+
+function propertyGroupLabel(group) {
+  const key = `group_${group}`;
+  // Unknown legacy/custom group names are data, not translation keys.
+  return Object.hasOwn(translations.en, key) ? t(key) : group;
 }
 
 function groupPresetIds(group) {
@@ -2513,10 +2744,10 @@ function renderProperties() {
     const data = propertyData(p);
     const detailsOpen = openPropertyDetails.has(p.id);
     return `<div class="property-item ${p.mortgaged ? "mortgaged" : ""}" style="--property-color: ${data.color}">
-    <div class="property-title"><strong>${escapeHtml(data.name)}</strong><span>${escapeHtml(data.group)}</span></div>
+    <div class="property-title"><strong>${escapeHtml(data.name)}</strong><span>${escapeHtml(propertyGroupLabel(data.group))}</span></div>
     <div class="tx-note">${t("purchase")} ${money(data.price)} · ${t("mortgage")} ${money(data.mortgageValue)}${p.mortgaged ? ` · ${t("mortgaged")}` : ""}</div>
     <div class="property-details ${detailsOpen ? "" : "hidden"}" data-property-details="${p.id}">
-      <div>${t("group")}: ${escapeHtml(data.group)}</div>
+      <div>${t("group")}: ${escapeHtml(propertyGroupLabel(data.group))}</div>
       <div>${data.canBuild ? `${t("housePrice")}: ${money(data.houseCost)} · ${t("houses")}: ${data.houses === 5 ? t("hotel") : data.houses}` : t("noHouses")}</div>
       ${propertyRentRows(data, p)}
     </div>
@@ -2625,14 +2856,19 @@ function closePropertySaleDialog() {
   els.propertySaleDialog.close("cancel");
 }
 
+function updatePropertySaleTitle() {
+  const property = properties.find(item => item.id === propertySaleId);
+  els.propertySaleTitle.textContent = property
+    ? `${t("sellProperty")}: ${propertyDisplayName(property)}` : t("sellProperty");
+}
+
 function openPropertySaleDialog(propertyId) {
   const property = properties.find(p => p.id === propertyId && p.ownerId === currentPlayerId);
   if (!property) return setStatus("", true, "propertyGone");
   const buyers = players.filter(player => player.id !== currentPlayerId);
   if (!buyers.length) return setStatus("", true, "noBuyerAvailable");
   propertySaleId = propertyId;
-  const data = propertyData(property);
-  els.propertySaleTitle.textContent = `${t("sellProperty")}: ${data.name}`;
+  updatePropertySaleTitle();
   els.propertyBuyerSelect.innerHTML = buyers.map(player => `<option value="${player.id}">${escapeHtml(player.name)}</option>`).join("");
   els.propertySaleAmount.value = "";
   els.propertySaleDialog.showModal();
@@ -2716,13 +2952,13 @@ function auctionPropertyMarkup(auction) {
   const property = auction.property || {};
   const data = propertyData({ id: auction.propertyId, ...property });
   return `<div class="property-item" style="--property-color: ${data.color}">
-    <div class="property-title"><strong>${escapeHtml(data.name)}</strong><span>${escapeHtml(data.group)}</span></div>
+    <div class="property-title"><strong>${escapeHtml(data.name)}</strong><span>${escapeHtml(propertyGroupLabel(data.group))}</span></div>
     <div class="tx-note">${t("purchase")} ${money(data.price)} · ${t("mortgage")} ${money(data.mortgageValue)}</div>
     <div class="property-details">${propertyRentRows(data, { ownerId: auction.sellerId })}</div>
   </div>`;
 }
 
-function renderAuction() {
+function renderAuction(preserveInput = false) {
   const auction = gameData.auction;
   if (auctionFinalizeTimer) {
     clearTimeout(auctionFinalizeTimer);
@@ -2753,7 +2989,7 @@ function renderAuction() {
     const secondsLeft = Math.max(0, Math.ceil((Number(auction.endsAt || 0) - Date.now()) / 1000));
     if (myBid?.amount) els.auctionStatus.textContent = t("auctionYourBid").replace("{amount}", money(myBid.amount));
     else els.auctionStatus.textContent = t("auctionWaiting").replace("{seconds}", secondsLeft);
-    els.auctionBidAmount.value = myBid?.amount || "";
+    if (!preserveInput) els.auctionBidAmount.value = myBid?.amount || "";
   } else {
     const winner = players.find(player => player.id === auction.winnerId);
     els.auctionStatus.textContent = auction.winnerId
@@ -2928,8 +3164,25 @@ function escapeHtml(value) {
 
 function handleError(err) {
   console.error(err);
-  setStatus(err?.message || t("somethingWrong"), true);
+  // Only this known application error is keyed; Firebase diagnostics stay intact.
+  const key = err?.translationKey === "boardStaleRevision" ? "boardStaleRevision" : "";
+  setStatus(err?.message || t("somethingWrong"), true, key);
 }
+
+// The visual board reuses the app's source-of-truth arrays and existing SVG icons.
+// No additional Firestore listeners, frameworks, build tools or game rules.
+const boardController = createBoardController({
+  getState: () => ({ gameId, currentPlayerId, gameData, players, properties, language, diceRollInProgress }),
+  presets: PROPERTY_PRESETS, playerIconSvg, money, onRollDice: openDiceDialog, translate: t,
+  onPropertySelect: openBoardProperty,
+  onReset: () => {
+    boardSessionGeneration++;
+    activeDiceRollId = "";
+    diceRollInProgress = false;
+    if (els.diceDialog.open) els.diceDialog.close();
+    els.startingRollBtn.disabled = false;
+  }
+});
 
 applyLanguage();
 

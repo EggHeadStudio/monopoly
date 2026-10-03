@@ -17,6 +17,9 @@ A static HTML/CSS/JavaScript Monopoly money manager that runs on GitHub Pages an
 - Private player-to-player messages with replies
 - Delete a game and its players, transactions, properties, and private messages
 - Public, password-gated, and secret (code-only) game visibility options
+- Interactive 40-space Helsinki board with live tokens, buildings, ownership and mortgages
+- Animated normal-turn dice movement and informational Chance / Community Chest cards
+- Board-only zoom, pan, token following, player centering and full-board overview
 - No Node, Flask, npm or build step required
 
 ## 1. Create the Firebase project
@@ -115,12 +118,31 @@ monopoly-bank/
 ├── index.html
 ├── style.css
 ├── app.js
+├── board.js
+├── board.css
 ├── firebase-config.js
 ├── firestore.rules
+├── Monopoly_bank.png
 └── README.md
 ```
 
 Then push to GitHub.
+
+For an existing Pages deployment, commit and push the updated application files,
+including the new `board.js` and `board.css`. No build, dependency installation or
+database migration is needed. The `tests/` directory is optional for deployment;
+the application never loads it. Keeping it in the repository is recommended for
+future regression checks, but leaving it out of the published site (or removing it)
+does not affect the game. Test pages use isolated sample data and do not access
+live Firebase games.
+
+These board/player-position features need no changes to the current repository
+Firestore rules: the existing authenticated player writes already allow the new
+fields. If your Firebase project's published rules differ from `firestore.rules`,
+review that difference before deployment. Pushing to GitHub does **not** deploy
+Firestore rules; any required rule publication happens separately in Firebase.
+The existing broad authenticated rules are still MVP/family-use rules, not
+membership-based security for a publicly accessible multi-user service.
 
 In GitHub:
 
@@ -161,6 +183,13 @@ games/{gameCode}
   players/{playerId}
     name
     balance
+    icon
+    color
+    position                 # integer 0–39; legacy players default to GO
+    boardMoveVersion         # optimistic movement revision
+    boardLastRollId          # idempotency key for the last committed roll
+    boardLastDiceTotal
+    boardLastCard            # informational card id/type/rollId, or null
     createdAt
 
   transactions/{transactionId}
@@ -174,24 +203,99 @@ games/{gameCode}
 
   properties/{propertyId}
     name
+    presetId
     ownerId
     price
     mortgageValue
     mortgaged
+    houses                   # 0–4 houses; 5 is one hotel
     createdAt
 ```
+
+## Interactive board
+
+Open **Board** from the game view. A normal turn roll opens the board and moves the
+selected player's piece one space at a time (160 ms per step); starting rolls never
+move a piece. You can also open the existing dice dialog from the board toolbar.
+The settled dice and total stay visible for one second before movement starts.
+
+Click or tap a property, station or utility to navigate its existing controls:
+free spaces open **Properties / Tontit** with that property selected for buying or
+auctioning. Owned spaces close the board and expand the owner's player list,
+highlighting the chosen property's rent and mortgage details without switching
+your selected player. Rent payments remain manual. Dragging or pinching does not
+activate these shortcuts, and shortcuts are paused while dice/movement is active.
+
+- Desktop: drag to pan; **Ctrl + mouse wheel** to zoom. An ordinary wheel does not zoom.
+- Touch: use two fingers to pinch and pan inside the board. One finger does not move
+  the camera. Native touch scrolling is unchanged outside the board viewport.
+- Keyboard: focus the board viewport and use arrow keys to pan, or + / − to zoom.
+- **Center on me** preserves zoom. **Show full board** fits all 40 spaces on any screen.
+- The zoom control ranges from 55% to 300% relative to a responsive fit basis.
+  On small screens this basis allows a full-board overview at the minimum zoom;
+  mobile opening zoom is intentionally closer and centered on the selected player.
+- **Follow my token** gently follows movement, unless the camera was adjusted manually
+  within the last four seconds.
+
+The board uses the existing game, players and properties subscriptions. No new
+listeners or collections are required, and the current Firestore rules already
+allow the added player fields. There is no migration: missing positions are read
+as GO, and new players are stored with `position: 0`.
+
+Intermediate animation steps stay local. A transaction writes only the final
+position and last-roll metadata. It checks the original turn, position and revision
+so concurrent rolls from two devices cannot apply movement twice. If a commit
+fails, the local token returns to the last synchronized position and the error is
+shown inside the board. Other clients receive the final position through their
+existing player snapshot. Closing the board does not cancel a roll; leaving the
+game cancels its pending local animation.
+
+Landing on Chance or Community Chest draws one informational placeholder card on
+the rolling device after a successful commit. Rerendering or reopening the board
+does not draw again. Card definitions are ready for future effects, but currently
+**rent, purchases, GO salary, taxes, card effects and jail rules remain manual**.
+Landing on **Go to Jail** immediately relocates the token to **Jail / Just Visiting**
+(space 10), using the same final-position write. Passing the space does not trigger
+the relocation. This adds no jail fines, skipped turns or release rules.
+The existing third-double turn behavior is preserved; this is not a rules engine.
+
+### Isolated browser checks
+
+Serve the repository with a static HTTP server and open `tests/board.html`.
+The test page executes the actual application with an in-memory Firestore substitute,
+not the Firebase SDK, and never connects to or changes a live game. It checks board
+definitions, legacy positions, token layout, live property/pot updates, zoom limits,
+step-by-step movement, one final write, idempotency, stale turns/revisions, GO wrapping,
+card draws, starting rolls, the one-second dice preview, property navigation,
+tap-versus-drag/multitouch handling and failed-commit recovery. It also leaves the board open
+with eight test players for manual desktop and touch gesture checks.
+
+For headless browser runs with a virtual-time budget, append `?headless=1` to the
+test page URL. This test-only mode uses timer-backed animation frames and disables
+token/camera transitions to keep geometry checks deterministic. Normal interactive
+tests and the actual application retain their original animations.
+
+### Finnish / English coverage
+
+The regression page also checks translation-key and interpolation parity, app
+and board labels, accessible names, placeholders, all 40 board space names, cards,
+and locale changes while dice results, payment, sale and message dialogs are open.
+Changing language preserves selections, amounts, notes and unsent messages.
+Property/station/utility names use the existing preset names for the selected language;
+brand names and player-entered content remain unchanged. Saved activity reasons
+and messages are historical/user content and are not retroactively translated.
+Browser-native validation prompts and raw Firebase diagnostic messages may follow
+the browser/service language rather than the app's FI/EN setting.
 
 ## Notes for the next version
 
 Good next improvements would be:
 
-- Real Monopoly property list preloaded instead of manually entering names
-- Houses/hotels and automatic rent calculation
+- Automatic card effects and optional rule enforcement
 - Property transfer/trading between players
 - Dedicated banker/admin controls
 - Stronger membership-based Firestore rules
 - PWA / Add to Home Screen
-- Player icons and colors
 - Game reset / end-game summary
 - Offline handling
 
